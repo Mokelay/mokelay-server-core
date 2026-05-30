@@ -1,4 +1,5 @@
 import { createError, isError } from 'h3'
+import type { MokelayDebugResponse } from './orchestration-schema.js'
 
 export const mokelayErrorCodes = [
   'API_JSON_UUID_INVALID',
@@ -55,6 +56,7 @@ export type MokelayErrorResponse = {
     code: MokelayErrorCode
     message: string
   }
+  debug?: MokelayDebugResponse
 }
 
 const mokelayErrorCodeSet = new Set<string>(mokelayErrorCodes)

@@ -108,6 +108,10 @@ export type BlockExecutionContext = {
   }>
 }
 
+export type MokelayDebugResponse = {
+  blocks: BlockExecutionContext['blocks']
+}
+
 export type SqlExecutor = <T extends Record<string, unknown> = Record<string, unknown>>(
   query: SQL,
 ) => Promise<SqlExecutionResult<T>>
@@ -136,6 +140,7 @@ export type OrchestrationHandlerOptions = {
 export type MokelaySuccessResponse = {
   ok: true
   data: unknown
+  debug?: MokelayDebugResponse
 }
 
 export function assertApiJsonUuid(value: string | undefined) {

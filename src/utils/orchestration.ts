@@ -29,6 +29,7 @@ import {
   type BlockExecutionContext,
   type CalculateTemplate,
   type DatasourceSqlExecutor,
+  type MokelayDebugResponse,
   type MokelaySuccessResponse,
   type OrchestrationHandlerOptions,
   type ProcessableKey,
@@ -43,6 +44,33 @@ export type { OrchestrationCondition as Condition } from './orchestration-schema
 
 const templatePattern = /\{\{\s*([^}]+?)\s*\}\}/g
 const wholeTemplatePattern = /^\s*\{\{\s*([^}]+?)\s*\}\}\s*$/
+const debugQueryParam = '__debug'
+
+type MokelayEventContext = H3Event['context'] & {
+  mokelayDebug?: MokelayDebugResponse
+}
+
+function mokelayEventContext(event: H3Event) {
+  return event.context as MokelayEventContext
+}
+
+function shouldIncludeDebug(event: H3Event) {
+  const value = getQuery(event)[debugQueryParam]
+
+  return Array.isArray(value) ? value.includes('1') : value === '1'
+}
+
+function setDebugResponse(event: H3Event, debug: MokelayDebugResponse) {
+  mokelayEventContext(event).mokelayDebug = debug
+}
+
+function getDebugResponse(event: H3Event) {
+  return mokelayEventContext(event).mokelayDebug
+}
+
+function includeDebug<T extends { debug?: MokelayDebugResponse }>(response: T, debug: MokelayDebugResponse | undefined): T {
+  return debug ? { ...response, debug } : response
+}
 
 function formatSqlTimestamp(date: Date) {
   return date.toISOString().replace('T', ' ').replace('Z', '+00:00')
@@ -431,6 +459,11 @@ async function executeBlock(block: Block, context: BlockExecutionContext, execut
   validateDeclaredOutputs(block)
 
   const inputs = await resolveTemplates(block.inputs, context) as Record<string, unknown>
+  context.blocks[block.uuid] = {
+    inputs,
+    outputs: {},
+  }
+
   const datasource = databaseBlockFunctions.has(block.functionName)
     ? normalizeDatasourceName(inputs.datasource)
     : undefined
@@ -443,12 +476,8 @@ async function executeBlock(block: Block, context: BlockExecutionContext, execut
     return executeSql(query, datasource, requireDatabaseType(databaseType))
   }
 
-  context.blocks[block.uuid] = {
-    inputs,
-    outputs: {},
-  }
-
   const outputs = await executor({ event, block, inputs, executeSql: executeBlockSql, databaseType })
+  context.blocks[block.uuid].outputs = outputs
 
   if (block.outputs) {
     for (const outputDeclaration of block.outputs) {
@@ -474,6 +503,12 @@ async function executeBlock(block: Block, context: BlockExecutionContext, execut
 
 export async function executeApiJson(event: H3Event, rawApiJson: unknown, options: OrchestrationHandlerOptions = {}) {
   const apiJsonUuid = assertApiJsonUuid(getRouterParam(event, 'apiJsonUuid'))
+  const debug: MokelayDebugResponse | undefined = shouldIncludeDebug(event) ? { blocks: {} } : undefined
+
+  if (debug) {
+    setDebugResponse(event, debug)
+  }
+
   const apiJson = parseApiJson(apiJsonUuid, rawApiJson)
   const actualMethod = getMethod(event).toUpperCase()
 
@@ -489,7 +524,7 @@ export async function executeApiJson(event: H3Event, rawApiJson: unknown, option
     query: request.query,
     body: request.body,
     now: formatSqlTimestamp(new Date()),
-    blocks: {},
+    blocks: debug?.blocks ?? {},
   }
 
   for (const block of apiJson.blocks) {
@@ -497,11 +532,12 @@ export async function executeApiJson(event: H3Event, rawApiJson: unknown, option
   }
 
   const data = apiJson.response == null ? null : await resolveTemplates(apiJson.response, context)
-
-  return {
+  const response: MokelaySuccessResponse = {
     ok: true,
     data,
-  } satisfies MokelaySuccessResponse
+  }
+
+  return includeDebug(response, debug)
 }
 
 export function createMokelayOrchestrationHandler(options: OrchestrationHandlerOptions = {}): EventHandler {
@@ -515,7 +551,7 @@ export function createMokelayOrchestrationHandler(options: OrchestrationHandlerO
       return await executeApiJson(event, rawApiJson, options)
     } catch (error) {
       setResponseStatus(event, 200)
-      return toMokelayErrorResponse(error)
+      return includeDebug(toMokelayErrorResponse(error), getDebugResponse(event))
     }
   })
 }
