@@ -25,6 +25,14 @@
       "types": "./dist/utils/blocks/*.d.ts",
       "default": "./dist/utils/blocks/*.js"
     },
+    "./utils/controllers": {
+      "types": "./dist/utils/controllers/index.d.ts",
+      "default": "./dist/utils/controllers/index.js"
+    },
+    "./utils/controllers/*": {
+      "types": "./dist/utils/controllers/*.d.ts",
+      "default": "./dist/utils/controllers/*.js"
+    },
     "./utils/processors": {
       "types": "./dist/utils/processors/index.d.ts",
       "default": "./dist/utils/processors/index.js"

@@ -14,6 +14,7 @@ import {
 } from 'h3'
 import { allowedBlockOutputs, blockExecutors, databaseBlockFunctions } from './blocks/index.js'
 import { identifierSql, isRecord, requireDatabaseType } from './blocks/shared.js'
+import { controllerExecutors } from './controllers/index.js'
 import {
   datasourceDatabaseType,
   executeDatasourceSql,
@@ -28,14 +29,22 @@ import {
   type Block,
   type BlockExecutionContext,
   type CalculateTemplate,
+  type Controller,
   type DatasourceSqlExecutor,
+  type MokelayDebugBlockStep,
+  type MokelayDebugControllerStep,
+  type MokelayDebugError,
   type MokelayDebugResponse,
+  type MokelayDebugStep,
+  type OrchestrationBlock,
   type MokelaySuccessResponse,
+  type NextBlockUuid,
   type OrchestrationHandlerOptions,
   type ProcessableKey,
   type ProcessorConfig,
   type RequestContext,
   type SqlExecutor,
+  type StarterBlock,
 } from './orchestration-schema.js'
 import { processorExecutors } from './processors/index.js'
 import { loadApiJsonFromR2 } from './r2-api-json.js'
@@ -70,6 +79,17 @@ function getDebugResponse(event: H3Event) {
 
 function includeDebug<T extends { debug?: MokelayDebugResponse }>(response: T, debug: MokelayDebugResponse | undefined): T {
   return debug ? { ...response, debug } : response
+}
+
+function createDebugResponse(): MokelayDebugResponse {
+  return {
+    uuid: 'starter',
+    nextBlock: null,
+  }
+}
+
+function toDebugError(error: unknown): MokelayDebugError {
+  return toMokelayErrorResponse(error).error
 }
 
 function formatSqlTimestamp(date: Date) {
@@ -449,7 +469,13 @@ function validateDeclaredOutputs(block: Block) {
   }
 }
 
-async function executeBlock(block: Block, context: BlockExecutionContext, executeSql: DatasourceSqlExecutor, event: H3Event) {
+async function executeBlock(
+  block: Block,
+  context: BlockExecutionContext,
+  executeSql: DatasourceSqlExecutor,
+  event: H3Event,
+  debugStep?: MokelayDebugBlockStep,
+) {
   const executor = blockExecutors[block.functionName]
 
   if (!executor) {
@@ -459,6 +485,11 @@ async function executeBlock(block: Block, context: BlockExecutionContext, execut
   validateDeclaredOutputs(block)
 
   const inputs = await resolveTemplates(block.inputs, context) as Record<string, unknown>
+
+  if (debugStep) {
+    debugStep.inputs = inputs
+  }
+
   context.blocks[block.uuid] = {
     inputs,
     outputs: {},
@@ -497,17 +528,167 @@ async function executeBlock(block: Block, context: BlockExecutionContext, execut
   }
 
   context.blocks[block.uuid].outputs = outputs
+  if (debugStep) {
+    debugStep.outputs = outputs
+  }
 
   return outputs
 }
 
+function isController(block: OrchestrationBlock): block is Controller {
+  return 'type' in block && block.type === 'controller'
+}
+
+function isStarterBlock(block: OrchestrationBlock): block is StarterBlock {
+  return block.uuid === 'starter'
+}
+
+async function executeController(
+  controller: Controller,
+  context: BlockExecutionContext,
+  debugStep?: MokelayDebugControllerStep,
+) {
+  const executor = controllerExecutors[controller.functionName]
+
+  if (!executor) {
+    throw mokelayError('CONTROLLER_UNSUPPORTED_FUNCTION', `不支持的 Controller functionName：${controller.functionName}`, 400)
+  }
+
+  const inputs = await resolveTemplates(controller.inputs, context) as Record<string, unknown>
+  if (debugStep) {
+    debugStep.inputs = inputs
+  }
+
+  const selectedNode = executor({ controller, inputs })
+
+  if (debugStep) {
+    debugStep.node = {
+      uuid: selectedNode.uuid,
+      nextBlock: null,
+    }
+  }
+
+  return selectedNode
+}
+
+function buildBlockMap(blocks: OrchestrationBlock[]) {
+  let starterNextBlock: NextBlockUuid = null
+  const blockMap = new Map<string, Block | Controller>()
+
+  for (const block of blocks) {
+    if (isStarterBlock(block)) {
+      starterNextBlock = block.nextBlock
+      continue
+    }
+
+    blockMap.set(block.uuid, block)
+  }
+
+  return { starterNextBlock, blockMap }
+}
+
+type AppendDebugStep = (step: MokelayDebugStep) => void
+
+async function executeBlockGraph(
+  blocks: OrchestrationBlock[],
+  context: BlockExecutionContext,
+  executeSql: DatasourceSqlExecutor,
+  event: H3Event,
+  debug?: MokelayDebugResponse,
+) {
+  const { starterNextBlock, blockMap } = buildBlockMap(blocks)
+  const visited = new Set<string>()
+  let nextBlockUuid = starterNextBlock
+  let appendDebugStep: AppendDebugStep | undefined = debug
+    ? (step) => {
+        debug.nextBlock = step
+      }
+    : undefined
+
+  while (nextBlockUuid !== null) {
+    if (visited.has(nextBlockUuid)) {
+      throw mokelayError('API_JSON_INVALID_FLOW', `API JSON 流程存在循环：${nextBlockUuid}`, 400)
+    }
+
+    visited.add(nextBlockUuid)
+
+    const block = blockMap.get(nextBlockUuid)
+
+    if (!block) {
+      throw mokelayError('API_JSON_INVALID_FLOW', `API JSON 流程指向不存在的 block：${nextBlockUuid}`, 400)
+    }
+
+    if (isController(block)) {
+      const debugStep: MokelayDebugControllerStep | undefined = debug
+        ? {
+            uuid: block.uuid,
+            type: 'controller',
+            inputs: {},
+          }
+        : undefined
+
+      if (debugStep) {
+        appendDebugStep?.(debugStep)
+      }
+
+      try {
+        const selectedNode = await executeController(block, context, debugStep)
+        nextBlockUuid = selectedNode.nextBlock
+        appendDebugStep = debugStep?.node
+          ? (step) => {
+              debugStep.node!.nextBlock = step
+            }
+          : undefined
+      } catch (error) {
+        if (debugStep) {
+          debugStep.error = toDebugError(error)
+          if (debugStep.node) {
+            debugStep.node.nextBlock = null
+          }
+        }
+
+        throw error
+      }
+
+      continue
+    }
+
+    const debugStep: MokelayDebugBlockStep | undefined = debug
+      ? {
+          uuid: block.uuid,
+          type: 'block',
+          inputs: {},
+          outputs: {},
+          nextBlock: null,
+        }
+      : undefined
+
+    if (debugStep) {
+      appendDebugStep?.(debugStep)
+    }
+
+    try {
+      await executeBlock(block, context, executeSql, event, debugStep)
+      nextBlockUuid = block.nextBlock
+      appendDebugStep = debugStep
+        ? (step) => {
+            debugStep.nextBlock = step
+          }
+        : undefined
+    } catch (error) {
+      if (debugStep) {
+        debugStep.error = toDebugError(error)
+        debugStep.nextBlock = null
+      }
+
+      throw error
+    }
+  }
+}
+
 export async function executeApiJson(event: H3Event, rawApiJson: unknown, options: OrchestrationHandlerOptions = {}) {
   const apiJsonUuid = assertApiJsonUuid(getRouterParam(event, 'apiJsonUuid'))
-  const debug: MokelayDebugResponse | undefined = shouldIncludeDebug(event) ? { blocks: {} } : undefined
-
-  if (debug) {
-    setDebugResponse(event, debug)
-  }
+  const includeDebugResponse = shouldIncludeDebug(event)
 
   const apiJson = parseApiJson(apiJsonUuid, rawApiJson)
   const actualMethod = getMethod(event).toUpperCase()
@@ -518,18 +699,22 @@ export async function executeApiJson(event: H3Event, rawApiJson: unknown, option
 
   const request = await readRequestContext(event, apiJson)
   const executeSql = options.executeSql ?? defaultExecuteSql
+  const debug: MokelayDebugResponse | undefined = includeDebugResponse ? createDebugResponse() : undefined
+
+  if (debug) {
+    setDebugResponse(event, debug)
+  }
+
   const context: BlockExecutionContext = {
     request,
     header: request.header,
     query: request.query,
     body: request.body,
     now: formatSqlTimestamp(new Date()),
-    blocks: debug?.blocks ?? {},
+    blocks: {},
   }
 
-  for (const block of apiJson.blocks) {
-    await executeBlock(block, context, executeSql, event)
-  }
+  await executeBlockGraph(apiJson.blocks, context, executeSql, event, debug)
 
   const data = apiJson.response == null ? null : await resolveTemplates(apiJson.response, context)
   const response: MokelaySuccessResponse = {

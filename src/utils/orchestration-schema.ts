@@ -33,6 +33,8 @@ export type CalculateTemplate = z.infer<typeof calculateTemplateSchema>
 export type ProcessorConfig = z.infer<typeof processorConfigSchema>
 export type ProcessableKey = z.infer<typeof processableKeySchema>
 
+export type NextBlockUuid = string | null
+
 type LeafCondition = {
   group: false
   fieldName: string
@@ -70,13 +72,83 @@ const requestSchema = z.object({
   body: z.array(processableKeySchema).optional().default([]),
 }).strict()
 
-export const blockSchema = z.object({
+export type Block = {
+  uuid: string
+  alias?: string
+  functionName: string
+  type?: string
+  inputs: Record<string, unknown>
+  outputs?: ProcessableKey[] | null
+  nextBlock: NextBlockUuid
+}
+
+export type StarterBlock = {
+  uuid: 'starter'
+  nextBlock: NextBlockUuid
+}
+
+export type ControllerNode = {
+  uuid: string
+  alias?: string
+  type?: 'DEFAULT'
+  value?: string | number | boolean
+  nextBlock: NextBlockUuid
+}
+
+export type Controller = {
+  uuid: string
+  alias?: string
+  functionName: string
+  type: 'controller'
+  inputs: Record<string, unknown>
+  nodes: ControllerNode[]
+}
+
+export type OrchestrationBlock = StarterBlock | Block | Controller
+
+const nextBlockSchema = z.string().min(1, 'nextBlock 不能为空字符串。').nullable()
+
+const starterBlockSchema: z.ZodType<StarterBlock, z.ZodTypeDef, unknown> = z.object({
+  uuid: z.literal('starter'),
+  nextBlock: nextBlockSchema,
+}).strict()
+
+const standardBlockSchema: z.ZodType<Block, z.ZodTypeDef, unknown> = z.object({
   uuid: z.string().min(1, 'Block UUID 不能为空。'),
   alias: z.string().optional(),
   functionName: z.string().min(1, 'Block functionName 不能为空。'),
+  type: z.string().optional(),
   inputs: z.record(z.unknown()).optional().default({}),
   outputs: z.array(processableKeySchema).nullable().optional(),
+  nextBlock: nextBlockSchema,
+}).strict().refine((value) => value.type !== 'controller', {
+  message: 'Controller 必须配置 nodes。',
+}).refine((value) => value.uuid !== 'starter', {
+  message: 'starter 只能作为 Starter Block。',
+})
+
+export const controllerNodeSchema: z.ZodType<ControllerNode, z.ZodTypeDef, unknown> = z.object({
+  uuid: z.string().min(1, 'Node UUID 不能为空。'),
+  alias: z.string().optional(),
+  type: z.literal('DEFAULT').optional(),
+  value: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  nextBlock: nextBlockSchema,
 }).strict()
+
+export const controllerSchema: z.ZodType<Controller, z.ZodTypeDef, unknown> = z.object({
+  uuid: z.string().min(1, 'Controller UUID 不能为空。'),
+  alias: z.string().optional(),
+  functionName: z.string().min(1, 'Controller functionName 不能为空。'),
+  type: z.literal('controller'),
+  inputs: z.record(z.unknown()).optional().default({}),
+  nodes: z.array(controllerNodeSchema).min(1, 'Controller nodes 不能为空。'),
+}).strict()
+
+export const blockSchema: z.ZodType<OrchestrationBlock, z.ZodTypeDef, unknown> = z.lazy(() => z.union([
+  starterBlockSchema,
+  controllerSchema,
+  standardBlockSchema,
+]))
 
 const apiJsonSchema = z.object({
   uuid: z.string().min(1, 'API JSON UUID 不能为空。'),
@@ -88,7 +160,6 @@ const apiJsonSchema = z.object({
 }).strict()
 
 export type ApiJson = z.infer<typeof apiJsonSchema>
-export type Block = z.infer<typeof blockSchema>
 
 export type RequestContext = {
   header: Record<string, string>
@@ -108,8 +179,38 @@ export type BlockExecutionContext = {
   }>
 }
 
+export type MokelayDebugError = {
+  code: string
+  message: string
+}
+
+export type MokelayDebugBlockStep = {
+  uuid: string
+  type: 'block'
+  inputs: Record<string, unknown>
+  outputs: Record<string, unknown>
+  nextBlock: MokelayDebugStep | null
+  error?: MokelayDebugError
+}
+
+export type MokelayDebugControllerNode = {
+  uuid: string
+  nextBlock: MokelayDebugStep | null
+}
+
+export type MokelayDebugControllerStep = {
+  uuid: string
+  type: 'controller'
+  inputs: Record<string, unknown>
+  node?: MokelayDebugControllerNode
+  error?: MokelayDebugError
+}
+
+export type MokelayDebugStep = MokelayDebugBlockStep | MokelayDebugControllerStep
+
 export type MokelayDebugResponse = {
-  blocks: BlockExecutionContext['blocks']
+  uuid: 'starter'
+  nextBlock: MokelayDebugStep | null
 }
 
 export type SqlExecutor = <T extends Record<string, unknown> = Record<string, unknown>>(
@@ -166,5 +267,91 @@ export function parseApiJson(apiJsonUuid: string, value: unknown): ApiJson {
     throw mokelayError('API_JSON_UUID_MISMATCH', 'API JSON UUID 与请求路径不一致。', 400)
   }
 
+  assertUniqueDslUuids(parsed.data)
+  assertApiJsonFlow(parsed.data)
+
   return parsed.data
+}
+
+function isControllerBlock(block: OrchestrationBlock): block is Controller {
+  return 'type' in block && block.type === 'controller' && 'nodes' in block
+}
+
+function assertUniqueDslUuids(apiJson: ApiJson) {
+  const seen = new Set<string>()
+
+  function visitUuid(uuid: string) {
+    if (seen.has(uuid)) {
+      throw mokelayError('API_JSON_DUPLICATE_UUID', `API JSON 中存在重复 UUID：${uuid}`, 400)
+    }
+
+    seen.add(uuid)
+  }
+
+  for (const block of apiJson.blocks) {
+    visitUuid(block.uuid)
+
+    if (!isControllerBlock(block)) {
+      continue
+    }
+
+    for (const node of block.nodes) {
+      visitUuid(node.uuid)
+    }
+  }
+}
+
+function assertApiJsonFlow(apiJson: ApiJson) {
+  const starters = apiJson.blocks.filter((block): block is StarterBlock => block.uuid === 'starter')
+
+  if (starters.length !== 1) {
+    throw mokelayError('API_JSON_INVALID_FLOW', 'API JSON 必须且只能配置一个 uuid 为 starter 的 Starter Block。', 400)
+  }
+
+  const executableBlockUuids = new Set<string>()
+  const nodeUuids = new Set<string>()
+
+  for (const block of apiJson.blocks) {
+    if (block.uuid !== 'starter') {
+      executableBlockUuids.add(block.uuid)
+    }
+
+    if (!isControllerBlock(block)) {
+      continue
+    }
+
+    for (const node of block.nodes) {
+      nodeUuids.add(node.uuid)
+    }
+  }
+
+  function validateNextBlock(sourceUuid: string, nextBlock: NextBlockUuid) {
+    if (nextBlock === null) {
+      return
+    }
+
+    if (nextBlock === 'starter') {
+      throw mokelayError('API_JSON_INVALID_FLOW', `${sourceUuid}.nextBlock 不能指向 starter。`, 400)
+    }
+
+    if (nodeUuids.has(nextBlock)) {
+      throw mokelayError('API_JSON_INVALID_FLOW', `${sourceUuid}.nextBlock 不能指向 Controller node：${nextBlock}`, 400)
+    }
+
+    if (!executableBlockUuids.has(nextBlock)) {
+      throw mokelayError('API_JSON_INVALID_FLOW', `${sourceUuid}.nextBlock 指向不存在的 block：${nextBlock}`, 400)
+    }
+  }
+
+  for (const block of apiJson.blocks) {
+    if (isControllerBlock(block)) {
+      for (const node of block.nodes) {
+        validateNextBlock(node.uuid, node.nextBlock)
+      }
+
+      continue
+    }
+
+    validateNextBlock(block.uuid, block.nextBlock)
+  }
 }
