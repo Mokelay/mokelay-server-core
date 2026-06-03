@@ -1,4 +1,5 @@
 import { apiJsonWhenPublishedProcessor } from './api_json_when_published.js'
+import { defaultValueProcessor } from './default_value.js'
 import { emailCheckProcessor } from './email_check.js'
 import { envValueProcessor } from './env_value.js'
 import { eqProcessor } from './eq.js'
@@ -24,6 +25,7 @@ export const processorExecutors: Record<string, ProcessorExecutor> = {
   number_check: numberCheckProcessor,
   eq: eqProcessor,
   equals: equalsProcessor,
+  default_value: defaultValueProcessor,
   env_value: envValueProcessor,
   api_json_when_published: apiJsonWhenPublishedProcessor,
   min: minProcessor,

@@ -24,6 +24,7 @@ export const apis = pgTable('apis', {
   method: varchar('method', { length: 16 }).notNull(),
   status: varchar('status', { length: 32 }).notNull().default('draft'),
   apiJson: jsonb('api_json').$type<Record<string, unknown>>().notNull(),
+  layout: jsonb('layout').$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
