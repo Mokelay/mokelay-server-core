@@ -138,18 +138,51 @@ export function datasourceDatabaseUrlEnvName(datasource: unknown) {
   return `${normalizeDatasourceName(datasource)}_DATABASE_URL`
 }
 
+function buildDatabaseUrlFromParts(datasource: string): { envName: string; databaseUrl: string } {
+  const typeEnvName = `${datasource}_Type`
+  const hostEnvName = `${datasource}_Host`
+
+  const databaseType = process.env[typeEnvName]
+
+  if (databaseType !== 'postgres' && databaseType !== 'mysql') {
+    throw mokelayError(
+      'BLOCK_DATASOURCE_UNSUPPORTED_DATABASE',
+      `${typeEnvName} 必须是 'postgres' 或 'mysql'。`,
+      500,
+    )
+  }
+
+  const host = process.env[hostEnvName]
+
+  if (!host) {
+    throw mokelayError(
+      'BLOCK_DATASOURCE_URL_MISSING',
+      `${hostEnvName} 未配置。`,
+      500,
+    )
+  }
+
+  const port = process.env[`${datasource}_Port`]
+  const schema = process.env[`${datasource}_Schema`] ?? ''
+  const user = process.env[`${datasource}_User`] ?? ''
+  const password = process.env[`${datasource}_Password`] ?? ''
+
+  const hostWithPort = port ? `${host}:${port}` : host
+  const databaseUrl = `${databaseType}://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${hostWithPort}/${schema}`
+
+  return { envName: hostEnvName, databaseUrl }
+}
+
 export function datasourceDatabaseUrl(datasource: unknown) {
-  const envName = datasourceDatabaseUrlEnvName(datasource)
+  const name = normalizeDatasourceName(datasource)
+  const envName = `${name}_DATABASE_URL`
   const databaseUrl = process.env[envName]
 
-  if (!databaseUrl) {
-    throw mokelayError('BLOCK_DATASOURCE_URL_MISSING', `${envName} is not configured.`, 500)
+  if (databaseUrl) {
+    return { envName, databaseUrl }
   }
 
-  return {
-    envName,
-    databaseUrl,
-  }
+  return buildDatabaseUrlFromParts(name)
 }
 
 export function datasourceDatabaseType(datasource: unknown) {

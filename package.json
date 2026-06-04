@@ -50,6 +50,7 @@
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "build": "npm run clean && tsc -p tsconfig.build.json",
+    "build:watch": "npx tsc -p tsconfig.build.json --watch",
     "test": "vitest run --passWithNoTests",
     "prepublishOnly": "npm run typecheck && npm run build && npm test"
   },
