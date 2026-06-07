@@ -95,7 +95,7 @@ export function detectDatabaseType(databaseUrl: string): DatabaseType {
     protocol = new URL(databaseUrl).protocol.replace(/:$/, '').toLowerCase()
   } catch (error) {
     console.error('数据库连接 URL 不是合法 URL:', error)
-    throw mokelayError('BLOCK_DATASOURCE_UNSUPPORTED_DATABASE', '数据库连接 URL 不是合法 URL:'+databaseUrl, 500, error)
+    throw mokelayError('BLOCK_DATASOURCE_UNSUPPORTED_DATABASE', '数据库连接 URL 不是合法 URL', 500, error)
   }
 
   if (protocol === 'postgres' || protocol === 'postgresql') {
