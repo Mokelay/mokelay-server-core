@@ -5,6 +5,7 @@ import { executeAssertUniqueBlock } from './assertUnique.js'
 import { executeCountBlock } from './count.js'
 import { executeCreateBlock } from './create.js'
 import { executeDeleteBlock } from './delete.js'
+import { executeListApifoxApisBlock } from './listApifoxApis.js'
 import { executeListBlock } from './list.js'
 import { executePageBlock } from './page.js'
 import { executeReadBlock } from './read.js'
@@ -31,6 +32,7 @@ export const allowedBlockOutputs: Record<string, readonly string[]> = {
   readSession: ['value'],
   saveJsonToR2: ['key', 'directory', 'fileName', 'bucket', 'size', 'etag', 'skipped'],
   analyzeDataSource: ['result'],
+  listApifoxApis: ['apis', 'count', 'openapi'],
 }
 
 export const databaseBlockFunctions = new Set([
@@ -62,4 +64,5 @@ export const blockExecutors: Record<string, BlockExecutor> = {
   readSession: executeReadSessionBlock,
   saveJsonToR2: executeSaveJsonToR2Block,
   analyzeDataSource: executeAnalyzeDataSourceBlock,
+  listApifoxApis: executeListApifoxApisBlock,
 }
