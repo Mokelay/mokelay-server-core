@@ -1,6 +1,6 @@
 {
   "name": "mokelay-server-core",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Core server utilities for Mokelay.",
   "type": "module",
   "main": "./dist/index.js",
@@ -51,6 +51,7 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run clean && tsc -p tsconfig.build.json",
     "build:watch": "npx tsc -p tsconfig.build.json --watch",
+    "publish:npm": "node scripts/publish.mjs",
     "test": "vitest run --passWithNoTests",
     "prepublishOnly": "npm run typecheck && npm run build && npm test"
   },

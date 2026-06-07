@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - `db.ts`: Datasource 连接支持分拆环境变量配置，当 `{datasource}_DATABASE_URL` 未配置时，自动读取 `{datasource}_Type`、`{datasource}_Host`、`{datasource}_Port`、`{datasource}_Schema`、`{datasource}_User`、`{datasource}_Password` 六个 Key 拼接连接 URL。
+- `package.json`: 新增 `publish:npm` 命令，用于自动递增 patch 版本并发布到 npm。
 
 ### Changed
 - `package.json`: 新增 `build:watch` 脚本，支持 TypeScript 增量编译监听，方便本地联调。
