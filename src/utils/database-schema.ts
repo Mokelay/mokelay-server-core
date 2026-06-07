@@ -12,7 +12,7 @@ export type DatabaseTableSchema = {
   columns: DatabaseColumnSchema[]
 }
 
-type DatabaseSchemaQueryRow = {
+export type DatabaseSchemaQueryRow = {
   tableName: string
   columnName: string | null
   columnType: string | null

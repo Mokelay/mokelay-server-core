@@ -10,6 +10,7 @@ import { executeReadBlock } from './read.js'
 import { executeReadSessionBlock } from './readSession.js'
 import { executeRemoveSessionBlock } from './removeSession.js'
 import { executeSaveJsonToR2Block } from './saveJsonToR2.js'
+import { executeSchemaBlock } from './schema.js'
 import { executeUpdateBlock } from './update.js'
 import { executeUpsertBlock } from './upsert.js'
 
@@ -23,6 +24,7 @@ export const allowedBlockOutputs: Record<string, readonly string[]> = {
   upsert: ['uuid'],
   assertUnique: [],
   update: ['affected'],
+  schema: ['tables'],
   addSession: [],
   removeSession: [],
   readSession: ['value'],
@@ -39,6 +41,7 @@ export const databaseBlockFunctions = new Set([
   'upsert',
   'assertUnique',
   'update',
+  'schema',
 ])
 
 export const blockExecutors: Record<string, BlockExecutor> = {
@@ -51,6 +54,7 @@ export const blockExecutors: Record<string, BlockExecutor> = {
   upsert: executeUpsertBlock,
   assertUnique: executeAssertUniqueBlock,
   update: executeUpdateBlock,
+  schema: executeSchemaBlock,
   addSession: executeAddSessionBlock,
   removeSession: executeRemoveSessionBlock,
   readSession: executeReadSessionBlock,
