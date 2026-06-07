@@ -3,11 +3,13 @@ import { resolve, sep } from 'node:path'
 import { sql, type SQL } from 'drizzle-orm'
 import {
   defineEventHandler,
+  getHeader,
   getMethod,
   getQuery,
   getRequestHeaders,
   getRouterParam,
   readBody,
+  readMultipartFormData,
   setResponseStatus,
   type EventHandler,
   type H3Event,
@@ -90,6 +92,27 @@ function createDebugResponse(): MokelayDebugResponse {
 
 function toDebugError(error: unknown): MokelayDebugError {
   return toMokelayErrorResponse(error).error
+}
+
+function toDebugValue(value: unknown): unknown {
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+    return {
+      type: Buffer.isBuffer(value) ? 'Buffer' : 'Uint8Array',
+      byteLength: value.byteLength,
+    }
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => toDebugValue(item))
+  }
+
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, toDebugValue(item)]),
+    )
+  }
+
+  return value
 }
 
 function formatSqlTimestamp(date: Date) {
@@ -389,6 +412,41 @@ function normalizeBody(body: unknown) {
   return isRecord(body) ? body : {}
 }
 
+function isMultipartRequest(event: H3Event) {
+  return (getHeader(event, 'content-type') || '').toLowerCase().startsWith('multipart/form-data')
+}
+
+async function readDeclaredMultipartBody(event: H3Event, declarations: ProcessableKey[]) {
+  const declaredKeys = new Set(declarations.map((declaration) => declarationKey(declaration)))
+  const body: Record<string, unknown> = {}
+
+  try {
+    const formData = await readMultipartFormData(event)
+
+    for (const item of formData ?? []) {
+      if (!item.name || !declaredKeys.has(item.name) || Object.prototype.hasOwnProperty.call(body, item.name)) {
+        continue
+      }
+
+      if (item.filename) {
+        body[item.name] = {
+          data: item.data,
+          mimeType: item.type || '',
+          fileName: item.filename,
+          size: item.data.byteLength,
+        }
+        continue
+      }
+
+      body[item.name] = item.data.toString('utf8')
+    }
+  } catch (error) {
+    throw mokelayError('REQUEST_INVALID_BODY', '请求 multipart/form-data body 无效。', 400, error)
+  }
+
+  return body
+}
+
 function requireDeclaredValue(source: Record<string, unknown>, name: string, sourceName: string) {
   if (!(name in source) || source[name] === undefined || source[name] === null || source[name] === '') {
     throw mokelayError('REQUEST_PARAMETER_MISSING', `缺少 ${sourceName} 参数：${name}`, 400)
@@ -406,10 +464,14 @@ async function readRequestContext(event: H3Event, apiJson: ApiJson): Promise<Req
   let bodyContext: Record<string, unknown> = {}
 
   if (shouldReadBody && apiJson.request.body.length > 0) {
-    try {
-      bodyContext = normalizeBody(await readBody(event))
-    } catch (error) {
-      throw mokelayError('REQUEST_INVALID_BODY', '请求 body 不是合法 JSON。', 400, error)
+    if (isMultipartRequest(event)) {
+      bodyContext = await readDeclaredMultipartBody(event, apiJson.request.body)
+    } else {
+      try {
+        bodyContext = normalizeBody(await readBody(event))
+      } catch (error) {
+        throw mokelayError('REQUEST_INVALID_BODY', '请求 body 不是合法 JSON。', 400, error)
+      }
     }
   }
 
@@ -487,7 +549,7 @@ async function executeBlock(
   const inputs = await resolveTemplates(block.inputs, context) as Record<string, unknown>
 
   if (debugStep) {
-    debugStep.inputs = inputs
+    debugStep.inputs = toDebugValue(inputs) as Record<string, unknown>
   }
 
   context.blocks[block.uuid] = {
@@ -529,7 +591,7 @@ async function executeBlock(
 
   context.blocks[block.uuid].outputs = outputs
   if (debugStep) {
-    debugStep.outputs = outputs
+    debugStep.outputs = toDebugValue(outputs) as Record<string, unknown>
   }
 
   return outputs
@@ -556,7 +618,7 @@ async function executeController(
 
   const inputs = await resolveTemplates(controller.inputs, context) as Record<string, unknown>
   if (debugStep) {
-    debugStep.inputs = inputs
+    debugStep.inputs = toDebugValue(inputs) as Record<string, unknown>
   }
 
   const selectedNode = executor({ controller, inputs })

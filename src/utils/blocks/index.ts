@@ -1,5 +1,6 @@
 import { type BlockExecutor } from '../orchestration-schema.js'
 import { executeAddSessionBlock } from './addSession.js'
+import { executeAnalyzeDataSourceBlock } from './analyzeDataSource.js'
 import { executeAssertUniqueBlock } from './assertUnique.js'
 import { executeCountBlock } from './count.js'
 import { executeCreateBlock } from './create.js'
@@ -29,6 +30,7 @@ export const allowedBlockOutputs: Record<string, readonly string[]> = {
   removeSession: [],
   readSession: ['value'],
   saveJsonToR2: ['key', 'directory', 'fileName', 'bucket', 'size', 'etag', 'skipped'],
+  analyzeDataSource: ['result'],
 }
 
 export const databaseBlockFunctions = new Set([
@@ -59,4 +61,5 @@ export const blockExecutors: Record<string, BlockExecutor> = {
   removeSession: executeRemoveSessionBlock,
   readSession: executeReadSessionBlock,
   saveJsonToR2: executeSaveJsonToR2Block,
+  analyzeDataSource: executeAnalyzeDataSourceBlock,
 }

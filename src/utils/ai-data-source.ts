@@ -36,13 +36,14 @@ type BodyMockData = KeyMockData & {
   dataType: DataType
 }
 
-type AnalyzeImageInput = {
+export type AnalyzeImageInput = {
   data: Buffer
   mimeType: SupportedImageMimeType
 }
 
-type AnalyzeDataSourceInput = {
-  text: string
+export type AnalyzeDataSourceInput = {
+  userInput?: string
+  prompt?: string
   image?: AnalyzeImageInput
 }
 
@@ -150,26 +151,34 @@ export class AiDataSourceModelOutputError extends AiDataSourceError {}
 export class AiDataSourceUnrecognizedError extends AiDataSourceError {}
 
 export async function analyzeDataSourceImage(input: AnalyzeImageInput): Promise<DataSourceAnalysisResult> {
-  return await analyzeDataSourceInput({
-    text: '请分析这张图片中的数据源内容。',
+  return await analyzeDataSource({
+    userInput: '请分析这张图片中的数据源内容。',
     image: input,
   })
 }
 
 export async function analyzeDataSourceText(text: string): Promise<DataSourceAnalysisResult> {
+  return await analyzeDataSource({ userInput: text })
+}
+
+export async function analyzeDataSource(input: AnalyzeDataSourceInput): Promise<DataSourceAnalysisResult> {
+  const text = input.userInput?.trim() || ''
   const localJson = parseJsonText(text)
 
-  if (localJson.ok) {
+  if (!input.image && localJson.ok) {
     return {
       type: 'JSON',
       rawData: localJson.value,
     }
   }
 
-  return await analyzeDataSourceInput({ text })
+  return await analyzeDataSourceByModel({
+    ...input,
+    userInput: text || (input.image ? '请分析这张图片中的数据源内容。' : ''),
+  })
 }
 
-async function analyzeDataSourceInput(input: AnalyzeDataSourceInput): Promise<DataSourceAnalysisResult> {
+async function analyzeDataSourceByModel(input: AnalyzeDataSourceInput): Promise<DataSourceAnalysisResult> {
   const apiKey = process.env.OPENAI_API_KEY?.trim()
 
   if (!apiKey) {
@@ -180,8 +189,15 @@ async function analyzeDataSourceInput(input: AnalyzeDataSourceInput): Promise<Da
   const model = process.env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini'
 
   try {
+    const supplementalPrompt = input.prompt?.trim()
+    const userInput = input.userInput?.trim() || ''
+    const textParts = [
+      dataSourceAnalysisPrompt,
+      supplementalPrompt ? `补充提示词：\n${supplementalPrompt}` : '',
+      `用户输入：\n${userInput}`,
+    ].filter(Boolean)
     const content = [
-      { type: 'input_text' as const, text: `${dataSourceAnalysisPrompt}\n\n用户输入：\n${input.text}` },
+      { type: 'input_text' as const, text: textParts.join('\n\n') },
       ...(input.image
         ? [{
             type: 'input_image' as const,
@@ -218,8 +234,44 @@ async function analyzeDataSourceInput(input: AnalyzeDataSourceInput): Promise<Da
       throw error
     }
 
+    if (isAiProviderConfigError(error)) {
+      throw new AiDataSourceConfigError(getAiProviderConfigErrorMessage(error), error)
+    }
+
     throw new AiDataSourceProviderError('AI 数据源分析服务调用失败。', error)
   }
+}
+
+function isAiProviderConfigError(error: unknown) {
+  if (!isRecord(error)) {
+    return false
+  }
+
+  const status = getNumberProperty(error, 'status')
+  const code = getStringProperty(error, 'code')
+  const type = getStringProperty(error, 'type')
+  const param = getStringProperty(error, 'param')
+
+  return status === 401
+    || code === 'invalid_api_key'
+    || code === 'authentication_error'
+    || type === 'authentication_error'
+    || code === 'model_not_found'
+    || code === 'invalid_model'
+    || param === 'model'
+}
+
+function getAiProviderConfigErrorMessage(error: unknown) {
+  if (isRecord(error)) {
+    const code = getStringProperty(error, 'code')
+    const param = getStringProperty(error, 'param')
+
+    if (code === 'model_not_found' || code === 'invalid_model' || param === 'model') {
+      return 'AI 模型配置无效，请检查 OPENAI_MODEL。'
+    }
+  }
+
+  return 'AI 服务认证配置无效，请检查 OPENAI_API_KEY。'
 }
 
 export function parseTextDataSourceJson(text: string): DataSourceAnalysisResult | null {
@@ -299,6 +351,18 @@ function parseJsonText(text: string): { ok: true, value: JsonValue } | { ok: fal
   } catch {
     return { ok: false }
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function getStringProperty(value: Record<string, unknown>, key: string) {
+  return typeof value[key] === 'string' ? value[key] : undefined
+}
+
+function getNumberProperty(value: Record<string, unknown>, key: string) {
+  return typeof value[key] === 'number' ? value[key] : undefined
 }
 
 function normalizeEndpoint(rawDomain: string, rawPath: string) {

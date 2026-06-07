@@ -1,6 +1,6 @@
 {
   "name": "mokelay-server-core",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Core server utilities for Mokelay.",
   "type": "module",
   "main": "./dist/index.js",
