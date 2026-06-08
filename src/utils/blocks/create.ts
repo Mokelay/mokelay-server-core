@@ -114,9 +114,11 @@ export const executeCreateBlock: BlockExecutor = async ({ inputs, executeSql, da
       : await executeSql(sql`INSERT INTO ${table} (${columnSql}) VALUES (${valueSql})`)
     const uuid = actualDatabaseType === 'postgres'
       ? result.rows[0]?.[idField.fieldName]
-      : isPresentId(result.insertId)
-        ? result.insertId
-        : fields[idField.fieldName]
+      : isPresentId(fields[idField.fieldName])
+        ? fields[idField.fieldName]
+        : isPresentId(result.insertId)
+          ? result.insertId
+          : fields[idField.fieldName]
 
     if (uuid === undefined || uuid === null || uuid === '') {
       throw mokelayError('BLOCK_CREATE_MISSING_ID', 'create Block 未返回插入记录的唯一 ID。', 500)
