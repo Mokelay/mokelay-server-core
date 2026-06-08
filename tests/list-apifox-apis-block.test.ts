@@ -15,6 +15,16 @@ function execute(inputs: Record<string, unknown>) {
   })
 }
 
+function lastRequestBody() {
+  const init = fetchMock.mock.calls.at(-1)?.[1] as RequestInit | undefined
+
+  if (!init || typeof init.body !== 'string') {
+    throw new Error('Expected fetch to be called with a JSON string body.')
+  }
+
+  return JSON.parse(init.body) as Record<string, unknown>
+}
+
 describe('executeListApifoxApisBlock', () => {
   beforeEach(() => {
     process.env.APIFOX_ACCESS_TOKEN = 'test-token'
@@ -97,7 +107,12 @@ describe('executeListApifoxApisBlock', () => {
       paths: {
         '/users/{id}': {
           parameters: [
-            { name: 'x-request-id', in: 'header' },
+            {
+              name: 'x-request-id',
+              in: 'header',
+              description: 'Trace request id.',
+              example: 'req-123',
+            },
           ],
           get: {
             summary: 'Read user',
@@ -105,11 +120,58 @@ describe('executeListApifoxApisBlock', () => {
             tags: ['User'],
             operationId: 'readUser',
             parameters: [
-              { name: 'id', in: 'path' },
-              { name: 'includePosts', in: 'query' },
+              {
+                name: 'id',
+                in: 'path',
+                description: 'User ID.',
+                required: true,
+                example: 'user-1',
+              },
+              {
+                name: 'includePosts',
+                in: 'query',
+                description: 'Include user posts.',
+                schema: {
+                  type: 'boolean',
+                  example: true,
+                },
+              },
             ],
             responses: {
-              200: { description: 'OK' },
+              200: {
+                description: 'OK',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['data'],
+                      properties: {
+                        code: {
+                          type: 'integer',
+                          description: 'Status code.',
+                          example: 0,
+                        },
+                        data: {
+                          description: 'User payload.',
+                          $ref: '#/components/schemas/User',
+                        },
+                      },
+                    },
+                    examples: {
+                      success: {
+                        summary: 'Success example.',
+                        value: {
+                          code: 0,
+                          data: {
+                            id: 'user-1',
+                            name: 'Ada',
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
               404: { description: 'Not found' },
             },
           },
@@ -117,11 +179,55 @@ describe('executeListApifoxApisBlock', () => {
             deprecated: true,
             requestBody: {
               content: {
-                'application/json': {},
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    required: ['email'],
+                    properties: {
+                      email: {
+                        type: 'string',
+                        description: 'User email.',
+                        example: 'ada@example.com',
+                      },
+                      profile: {
+                        type: 'object',
+                        description: 'User profile.',
+                        required: ['nickname'],
+                        properties: {
+                          nickname: {
+                            type: 'string',
+                            description: 'Display name.',
+                            example: 'Ada',
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
               },
             },
             responses: {
               201: { description: 'Created' },
+            },
+          },
+        },
+      },
+      components: {
+        schemas: {
+          User: {
+            type: 'object',
+            required: ['id'],
+            properties: {
+              id: {
+                type: 'string',
+                description: 'User ID.',
+                example: 'user-1',
+              },
+              name: {
+                type: 'string',
+                description: 'User name.',
+                example: 'Ada',
+              },
             },
           },
         },
@@ -146,8 +252,123 @@ describe('executeListApifoxApisBlock', () => {
             header: ['x-request-id'],
             cookie: [],
           },
+          parameterDetails: {
+            path: [
+              {
+                name: 'id',
+                in: 'path',
+                description: 'User ID.',
+                required: true,
+                deprecated: false,
+                example: 'user-1',
+                examples: null,
+              },
+            ],
+            query: [
+              {
+                name: 'includePosts',
+                in: 'query',
+                description: 'Include user posts.',
+                required: false,
+                deprecated: false,
+                example: true,
+                examples: null,
+              },
+            ],
+            header: [
+              {
+                name: 'x-request-id',
+                in: 'header',
+                description: 'Trace request id.',
+                required: false,
+                deprecated: false,
+                example: 'req-123',
+                examples: null,
+              },
+            ],
+            cookie: [],
+          },
           requestBodyContentTypes: [],
+          requestBodyParameters: [],
           responseStatusCodes: ['200', '404'],
+          responseDetails: [
+            {
+              statusCode: '200',
+              description: 'OK',
+              contentTypes: ['application/json'],
+              contents: [
+                {
+                  contentType: 'application/json',
+                  schemaDescription: null,
+                  example: null,
+                  examples: {
+                    success: {
+                      summary: 'Success example.',
+                      value: {
+                        code: 0,
+                        data: {
+                          id: 'user-1',
+                          name: 'Ada',
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+            {
+              statusCode: '404',
+              description: 'Not found',
+              contentTypes: [],
+              contents: [],
+            },
+          ],
+          responseBodyParameters: [
+            {
+              statusCode: '200',
+              contentType: 'application/json',
+              name: 'code',
+              path: 'code',
+              description: 'Status code.',
+              required: false,
+              deprecated: false,
+              example: 0,
+              examples: null,
+            },
+            {
+              statusCode: '200',
+              contentType: 'application/json',
+              name: 'data',
+              path: 'data',
+              description: 'User payload.',
+              required: true,
+              deprecated: false,
+              example: null,
+              examples: null,
+            },
+            {
+              statusCode: '200',
+              contentType: 'application/json',
+              name: 'id',
+              path: 'data.id',
+              description: 'User ID.',
+              required: true,
+              deprecated: false,
+              example: 'user-1',
+              examples: null,
+            },
+            {
+              statusCode: '200',
+              contentType: 'application/json',
+              name: 'name',
+              path: 'data.name',
+              description: 'User name.',
+              required: false,
+              deprecated: false,
+              example: 'Ada',
+              examples: null,
+            },
+          ],
         },
         {
           path: '/users/{id}',
@@ -163,8 +384,65 @@ describe('executeListApifoxApisBlock', () => {
             header: ['x-request-id'],
             cookie: [],
           },
+          parameterDetails: {
+            path: [],
+            query: [],
+            header: [
+              {
+                name: 'x-request-id',
+                in: 'header',
+                description: 'Trace request id.',
+                required: false,
+                deprecated: false,
+                example: 'req-123',
+                examples: null,
+              },
+            ],
+            cookie: [],
+          },
           requestBodyContentTypes: ['application/json'],
+          requestBodyParameters: [
+            {
+              contentType: 'application/json',
+              name: 'email',
+              path: 'email',
+              description: 'User email.',
+              required: true,
+              deprecated: false,
+              example: 'ada@example.com',
+              examples: null,
+            },
+            {
+              contentType: 'application/json',
+              name: 'profile',
+              path: 'profile',
+              description: 'User profile.',
+              required: false,
+              deprecated: false,
+              example: null,
+              examples: null,
+            },
+            {
+              contentType: 'application/json',
+              name: 'nickname',
+              path: 'profile.nickname',
+              description: 'Display name.',
+              required: true,
+              deprecated: false,
+              example: 'Ada',
+              examples: null,
+            },
+          ],
           responseStatusCodes: ['201'],
+          responseDetails: [
+            {
+              statusCode: '201',
+              description: 'Created',
+              contentTypes: [],
+              contents: [],
+            },
+          ],
+          responseBodyParameters: [],
         },
       ],
       count: 2,
@@ -216,5 +494,90 @@ describe('executeListApifoxApisBlock', () => {
         }),
       },
     )
+  })
+
+  it('exports APIs from a selected folder when folderId is provided', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({
+      openapi: '3.1.0',
+      paths: {},
+    }))
+
+    await expect(execute({
+      projectId: '123456',
+      folderId: '76',
+    })).resolves.toMatchObject({
+      apis: [],
+      count: 0,
+      openapi: null,
+    })
+
+    expect(lastRequestBody().scope).toEqual({
+      type: 'SELECTED_FOLDERS',
+      selectedFolderIds: [76],
+    })
+  })
+
+  it('exports a selected endpoint when apiId is provided', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({
+      openapi: '3.1.0',
+      paths: {},
+    }))
+
+    await expect(execute({
+      projectId: '123456',
+      apiId: '88',
+    })).resolves.toMatchObject({
+      apis: [],
+      count: 0,
+      openapi: null,
+    })
+
+    expect(lastRequestBody().scope).toEqual({
+      type: 'SELECTED_ENDPOINTS',
+      selectedEndpointIds: [88],
+    })
+  })
+
+  it('prioritizes apiId over folderId when both are provided', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({
+      openapi: '3.1.0',
+      paths: {},
+    }))
+
+    await expect(execute({
+      projectId: '123456',
+      folderId: 76,
+      apiId: 88,
+    })).resolves.toMatchObject({
+      apis: [],
+      count: 0,
+      openapi: null,
+    })
+
+    expect(lastRequestBody().scope).toEqual({
+      type: 'SELECTED_ENDPOINTS',
+      selectedEndpointIds: [88],
+    })
+  })
+
+  it.each([
+    ['folderId', 0],
+    ['folderId', -1],
+    ['folderId', 1.5],
+    ['folderId', 'abc'],
+    ['folderId', '1.5'],
+    ['apiId', 0],
+    ['apiId', -1],
+    ['apiId', 1.5],
+    ['apiId', 'abc'],
+    ['apiId', '1.5'],
+  ])('rejects invalid %s value %p', async (name, value) => {
+    await expect(execute({
+      projectId: '123456',
+      [name]: value,
+    })).rejects.toMatchObject({
+      data: { code: 'BLOCK_APIFOX_INPUT_INVALID' },
+      statusCode: 400,
+    })
   })
 })
