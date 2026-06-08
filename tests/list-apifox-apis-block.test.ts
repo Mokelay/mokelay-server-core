@@ -197,6 +197,7 @@ describe('executeListApifoxApisBlock', () => {
       new URL('https://gateway.example.com/apifox/v1/projects/123456/export-openapi?locale=en-US'),
       {
         method: 'POST',
+        redirect: 'manual',
         headers: {
           Authorization: 'Bearer test-token',
           'X-Apifox-Api-Version': '2024-03-28',

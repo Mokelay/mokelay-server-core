@@ -1,10 +1,14 @@
 import { mokelayError } from '../mokelay-error.js'
 import { type BlockExecutor } from '../orchestration-schema.js'
+import {
+  apifoxApiVersion,
+  buildApifoxUrl,
+  normalizeApifoxBaseUrl,
+  normalizeApifoxLocale,
+  readApifoxAccessToken,
+} from './apifoxShared.js'
 import { isRecord } from './shared.js'
 
-const defaultApifoxBaseUrl = 'https://api.apifox.com'
-const apifoxApiVersion = '2024-03-28'
-const defaultLocale = 'zh-CN'
 const httpMethods = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'] as const
 const parameterLocations = ['path', 'query', 'header', 'cookie'] as const
 
@@ -41,48 +45,6 @@ function normalizeProjectId(value: unknown) {
   throw mokelayError('BLOCK_APIFOX_INPUT_INVALID', 'projectId 必须是非空字符串或数字。', 400)
 }
 
-function normalizeLocale(value: unknown) {
-  if (value === undefined || value === null || value === '') {
-    return defaultLocale
-  }
-
-  if (typeof value !== 'string') {
-    throw mokelayError('BLOCK_APIFOX_INPUT_INVALID', 'locale 必须是字符串。', 400)
-  }
-
-  const locale = value.trim()
-
-  return locale || defaultLocale
-}
-
-function normalizeBaseUrl(value: unknown) {
-  if (value === undefined || value === null || value === '') {
-    return defaultApifoxBaseUrl
-  }
-
-  if (typeof value !== 'string') {
-    throw mokelayError('BLOCK_APIFOX_INPUT_INVALID', 'baseUrl 必须是字符串。', 400)
-  }
-
-  const baseUrl = value.trim()
-
-  if (!baseUrl) {
-    return defaultApifoxBaseUrl
-  }
-
-  try {
-    const url = new URL(baseUrl)
-
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new Error(`Unsupported protocol: ${url.protocol}`)
-    }
-
-    return url.toString()
-  } catch (error) {
-    throw mokelayError('BLOCK_APIFOX_INPUT_INVALID', 'baseUrl 必须是合法的 HTTP(S) URL。', 400, error)
-  }
-}
-
 function normalizeOptionalPositiveInteger(value: unknown, name: string) {
   if (value === undefined || value === null || value === '') {
     return undefined
@@ -93,16 +55,6 @@ function normalizeOptionalPositiveInteger(value: unknown, name: string) {
   }
 
   return value
-}
-
-function readAccessToken() {
-  const accessToken = process.env.APIFOX_ACCESS_TOKEN?.trim()
-
-  if (!accessToken) {
-    throw mokelayError('BLOCK_APIFOX_CONFIG_MISSING', 'APIFOX_ACCESS_TOKEN 未配置。', 500)
-  }
-
-  return accessToken
 }
 
 function stringOrNull(value: unknown) {
@@ -230,11 +182,7 @@ function buildExportBody(inputs: Record<string, unknown>) {
 }
 
 function buildExportUrl(baseUrl: string, projectId: string, locale: string) {
-  const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
-  const url = new URL(`v1/projects/${encodeURIComponent(projectId)}/export-openapi`, normalizedBaseUrl)
-  url.searchParams.set('locale', locale)
-
-  return url
+  return buildApifoxUrl(baseUrl, `v1/projects/${encodeURIComponent(projectId)}/export-openapi`, { locale })
 }
 
 async function parseOpenapiResponse(response: Response) {
@@ -259,9 +207,9 @@ async function parseOpenapiResponse(response: Response) {
  */
 export const executeListApifoxApisBlock: BlockExecutor = async ({ inputs }) => {
   const projectId = normalizeProjectId(inputs.projectId)
-  const baseUrl = normalizeBaseUrl(inputs.baseUrl)
-  const locale = normalizeLocale(inputs.locale)
-  const accessToken = readAccessToken()
+  const baseUrl = normalizeApifoxBaseUrl(inputs.baseUrl)
+  const locale = normalizeApifoxLocale(inputs.locale)
+  const accessToken = readApifoxAccessToken()
   const url = buildExportUrl(baseUrl, projectId, locale)
 
   let response: Response
@@ -269,6 +217,7 @@ export const executeListApifoxApisBlock: BlockExecutor = async ({ inputs }) => {
   try {
     response = await fetch(url, {
       method: 'POST',
+      redirect: 'manual',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'X-Apifox-Api-Version': apifoxApiVersion,

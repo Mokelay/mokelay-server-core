@@ -6,6 +6,7 @@ import { executeCountBlock } from './count.js'
 import { executeCreateBlock } from './create.js'
 import { executeDeleteBlock } from './delete.js'
 import { executeListApifoxApisBlock } from './listApifoxApis.js'
+import { executeListApifoxProjectsBlock } from './listApifoxProjects.js'
 import { executeListBlock } from './list.js'
 import { executePageBlock } from './page.js'
 import { executeReadBlock } from './read.js'
@@ -33,6 +34,7 @@ export const allowedBlockOutputs: Record<string, readonly string[]> = {
   saveJsonToR2: ['key', 'directory', 'fileName', 'bucket', 'size', 'etag', 'skipped'],
   analyzeDataSource: ['result'],
   listApifoxApis: ['apis', 'count', 'openapi'],
+  listApifoxProjects: ['projects', 'count', 'raw'],
 }
 
 export const databaseBlockFunctions = new Set([
@@ -65,4 +67,5 @@ export const blockExecutors: Record<string, BlockExecutor> = {
   saveJsonToR2: executeSaveJsonToR2Block,
   analyzeDataSource: executeAnalyzeDataSourceBlock,
   listApifoxApis: executeListApifoxApisBlock,
+  listApifoxProjects: executeListApifoxProjectsBlock,
 }
