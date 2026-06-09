@@ -5,6 +5,9 @@ import { executeAssertUniqueBlock } from './assertUnique.js'
 import { executeCountBlock } from './count.js'
 import { executeCreateBlock } from './create.js'
 import { executeDeleteBlock } from './delete.js'
+import { executeGithubCommitBlock } from './githubCommit.js'
+import { executeGitlabCommitBlock } from './gitlabCommit.js'
+import { gitCommitOutputKeys } from './gitShared.js'
 import { executeListApifoxApisBlock } from './listApifoxApis.js'
 import { executeListApifoxProjectsBlock } from './listApifoxProjects.js'
 import { executeListBlock } from './list.js'
@@ -35,6 +38,8 @@ export const allowedBlockOutputs: Record<string, readonly string[]> = {
   analyzeDataSource: ['result'],
   listApifoxApis: ['apis', 'count', 'openapi'],
   listApifoxProjects: ['projects', 'count', 'raw'],
+  githubCommit: gitCommitOutputKeys,
+  gitlabCommit: gitCommitOutputKeys,
 }
 
 export const databaseBlockFunctions = new Set([
@@ -68,4 +73,6 @@ export const blockExecutors: Record<string, BlockExecutor> = {
   analyzeDataSource: executeAnalyzeDataSourceBlock,
   listApifoxApis: executeListApifoxApisBlock,
   listApifoxProjects: executeListApifoxProjectsBlock,
+  githubCommit: executeGithubCommitBlock,
+  gitlabCommit: executeGitlabCommitBlock,
 }

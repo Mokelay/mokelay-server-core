@@ -108,7 +108,10 @@ function toDebugValue(value: unknown): unknown {
 
   if (isRecord(value)) {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, toDebugValue(item)]),
+      Object.entries(value).map(([key, item]) => [
+        key,
+        key.toLowerCase() === 'token' ? '[redacted]' : toDebugValue(item),
+      ]),
     )
   }
 
