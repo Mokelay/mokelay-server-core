@@ -18,6 +18,12 @@ export const pages = pgTable('pages', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
+export const apiDomains = pgTable('api_domains', {
+  uuid: varchar('uuid', { length: 128 }).primaryKey(),
+  alias: varchar('alias', { length: 120 }).notNull(),
+  host: text('host').notNull().unique(),
+})
+
 export const apis = pgTable('apis', {
   uuid: varchar('uuid', { length: 128 }).primaryKey(),
   name: varchar('name', { length: 120 }).notNull(),
@@ -43,6 +49,8 @@ export type UserRecord = typeof users.$inferSelect
 export type NewUserRecord = typeof users.$inferInsert
 export type PageRecord = typeof pages.$inferSelect
 export type NewPageRecord = typeof pages.$inferInsert
+export type ApiDomainRecord = typeof apiDomains.$inferSelect
+export type NewApiDomainRecord = typeof apiDomains.$inferInsert
 export type ApiRecord = typeof apis.$inferSelect
 export type NewApiRecord = typeof apis.$inferInsert
 export type ApiSnapshotRecord = typeof apisSnapshot.$inferSelect
