@@ -1,4 +1,5 @@
-import { jsonb, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { jsonb, pgTable, serial, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -16,6 +17,13 @@ export const pages = pgTable('pages', {
   blocks: jsonb('blocks').$type<unknown[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const apps = pgTable('apps', {
+  id: serial('id').primaryKey(),
+  uuid: varchar('uuid', { length: 8 }).notNull().unique().default(sql`substr(md5(random()::text || clock_timestamp()::text), 1, 8)`),
+  alias: varchar('alias', { length: 120 }).notNull(),
+  description: text('description').notNull().default(''),
 })
 
 export const apiDomains = pgTable('api_domains', {
@@ -49,6 +57,8 @@ export type UserRecord = typeof users.$inferSelect
 export type NewUserRecord = typeof users.$inferInsert
 export type PageRecord = typeof pages.$inferSelect
 export type NewPageRecord = typeof pages.$inferInsert
+export type AppRecord = typeof apps.$inferSelect
+export type NewAppRecord = typeof apps.$inferInsert
 export type ApiDomainRecord = typeof apiDomains.$inferSelect
 export type NewApiDomainRecord = typeof apiDomains.$inferInsert
 export type ApiRecord = typeof apis.$inferSelect
