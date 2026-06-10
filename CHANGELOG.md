@@ -4,7 +4,35 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-暂无。
+### Changed
+- `db.ts`: PostgreSQL 客户端不再注册 Mokelay 平台专属表 schema，数据库 Block 继续通过动态 SQL 访问数据源。
+
+### Removed
+- 移除 `database/schema` 导出；Mokelay 平台表定义迁移至 `mokelay-server/server/database/schema.ts`。
+
+---
+
+## [0.1.15] - 2026-06-10
+
+### Added
+- `database/schema.ts`: 新增 `apps` 表，包含自增 `id`、8 位唯一 `uuid`、`alias` 和 `description` 字段；`uuid` 默认由 PostgreSQL 生成。
+- `database/schema.ts`: 新增 `AppRecord` 与 `NewAppRecord` 类型导出。
+
+---
+
+## [0.1.14] - 2026-06-09
+
+### Added
+- `database/schema.ts`: 新增 `api_domains` 表，包含 `uuid`、`alias` 和唯一 `host` 字段，并导出 `ApiDomainRecord`、`NewApiDomainRecord` 类型。
+- `blocks/githubCommit`: 新增 GitHub 远程提交 Block，通过 GitHub Git Database API 创建 blob、tree 和 commit，并更新已有分支引用。
+- `blocks/gitlabCommit`: 新增 GitLab 远程提交 Block，通过 GitLab Commits API 在已有分支中批量创建、更新或删除文件。
+- `blocks/gitShared`: 新增 GitHub/GitLab 共用的输入校验、文件操作规范化、提交计数、HTTP 响应解析和错误映射能力。
+- Git commit Blocks 支持 UTF-8/Base64 文件内容、可选提交作者、`expectedHeadSha` 乐观锁，以及 GitHub Enterprise/GitLab 自建实例地址。
+- 新增 `BLOCK_GIT_INPUT_INVALID`、`BLOCK_GIT_AUTH_FAILED`、`BLOCK_GIT_BRANCH_NOT_FOUND`、`BLOCK_GIT_HEAD_MISMATCH`、`BLOCK_GIT_REQUEST_FAILED` 错误码。
+
+### Changed
+- `blocks/index`: 注册 `githubCommit`、`gitlabCommit` 执行器及统一输出字段。
+- `orchestration.ts`: Debug 数据中的 `token` 字段统一脱敏为 `[redacted]`，避免访问令牌泄露。
 
 ---
 

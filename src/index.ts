@@ -1,4 +1,3 @@
-export * from './database/schema.js'
 export * from './utils/ai-data-source.js'
 export * from './utils/cors.js'
 export * from './utils/database-schema.js'

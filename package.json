@@ -13,10 +13,6 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./database/schema": {
-      "types": "./dist/database/schema.d.ts",
-      "default": "./dist/database/schema.js"
-    },
     "./utils/blocks": {
       "types": "./dist/utils/blocks/index.d.ts",
       "default": "./dist/utils/blocks/index.js"

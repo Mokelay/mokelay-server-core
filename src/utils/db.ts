@@ -2,15 +2,14 @@ import { createError } from 'h3'
 import { type SQL } from 'drizzle-orm'
 import { MySqlDialect } from 'drizzle-orm/mysql-core'
 import { drizzle as drizzleMysql, type MySql2Database } from 'drizzle-orm/mysql2'
-import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
+import { drizzle as drizzlePostgres, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { createPool, type Pool, type ResultSetHeader } from 'mysql2/promise'
 import postgres from 'postgres'
-import * as schema from '../database/schema.js'
 import { mokelayError } from './mokelay-error.js'
 
 export type DatabaseType = 'postgres' | 'mysql'
 
-type PostgresDatabase = ReturnType<typeof drizzlePostgres<typeof schema>>
+type PostgresDatabase = PostgresJsDatabase<Record<string, never>> & { $client: postgres.Sql }
 type MysqlDatabase = MySql2Database<Record<string, never>> & { $client: Pool }
 
 type PostgresDatabaseConnection = {
@@ -65,7 +64,7 @@ function createPostgresDatabaseConnection(databaseUrl: string): PostgresDatabase
   return {
     databaseType: 'postgres',
     client,
-    db: drizzlePostgres(client, { schema }),
+    db: drizzlePostgres(client),
   }
 }
 
@@ -219,7 +218,7 @@ export function useDb() {
   }
 
   if (!globalForDb.__mokelayDb) {
-    globalForDb.__mokelayDb = drizzlePostgres(globalForDb.__mokelayPostgresClient, { schema })
+    globalForDb.__mokelayDb = drizzlePostgres(globalForDb.__mokelayPostgresClient)
   }
 
   return globalForDb.__mokelayDb
