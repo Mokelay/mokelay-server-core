@@ -13,6 +13,7 @@ import { minProcessor } from './min.js'
 import { notNullProcessor } from './not_null.js'
 import { numberCheckProcessor } from './number_check.js'
 import { regexProcessor } from './regex.js'
+import { stringArrayCheckProcessor } from './string_array_check.js'
 import { trimProcessor } from './trim.js'
 import { type ProcessorExecutor } from './shared.js'
 
@@ -31,6 +32,7 @@ export const processorExecutors: Record<string, ProcessorExecutor> = {
   min: minProcessor,
   max: maxProcessor,
   regex: regexProcessor,
+  string_array_check: stringArrayCheckProcessor,
   hash_make: hashMakeProcessor,
   hash_check: hashCheckProcessor,
 }

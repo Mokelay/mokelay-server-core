@@ -1,6 +1,5 @@
 import { type BlockDefinition, type BlockExecutor } from '../orchestration-schema.js'
 import { executeAddSessionBlock } from './addSession.js'
-import { executeAnalyzeDataSourceBlock } from './analyzeDataSource.js'
 import { executeAssertUniqueBlock } from './assertUnique.js'
 import { executeCountBlock } from './count.js'
 import { executeCreateBlock } from './create.js'
@@ -11,6 +10,7 @@ import { gitCommitOutputKeys } from './gitShared.js'
 import { executeListApifoxApisBlock } from './listApifoxApis.js'
 import { executeListApifoxProjectsBlock } from './listApifoxProjects.js'
 import { executeListBlock } from './list.js'
+import { executeOpenAIBlock } from './openAI.js'
 import { executePageBlock } from './page.js'
 import { executeReadBlock } from './read.js'
 import { executeReadSessionBlock } from './readSession.js'
@@ -42,7 +42,7 @@ export const blockDefinitions: Readonly<Record<string, BlockDefinition>> = {
     executor: executeSaveJsonToR2Block,
     allowedOutputs: ['key', 'directory', 'fileName', 'bucket', 'size', 'etag', 'skipped'],
   },
-  analyzeDataSource: { executor: executeAnalyzeDataSourceBlock, allowedOutputs: ['result'] },
+  openAI: { executor: executeOpenAIBlock, allowedOutputs: ['result'] },
   listApifoxApis: { executor: executeListApifoxApisBlock, allowedOutputs: ['apis', 'count', 'openapi'] },
   listApifoxProjects: {
     executor: executeListApifoxProjectsBlock,

@@ -24,4 +24,11 @@ describe('git commit block registry', () => {
     expect(databaseBlockFunctions.has('githubCommit')).toBe(false)
     expect(databaseBlockFunctions.has('gitlabCommit')).toBe(false)
   })
+
+  it('registers openAI as a non-database JSON block', () => {
+    expect(allowedBlockOutputs.openAI).toEqual(['result'])
+    expect(allowedBlockOutputs.analyzeDataSource).toBeUndefined()
+    expect(blockExecutors.openAI).toBeTypeOf('function')
+    expect(databaseBlockFunctions.has('openAI')).toBe(false)
+  })
 })

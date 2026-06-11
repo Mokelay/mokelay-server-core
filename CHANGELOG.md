@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `blocks/openAI`: 新增通用 OpenAI Responses API Block，支持文本、JSON 值和 multipart 图片输入，并将 JSON object 结果解析到 `outputs.result`。
+- `string_array_check` processor：校验请求值是只包含字符串的数组。
+
+### Removed
+- 移除领域专用的 `analyzeDataSource` Block、`ai-data-source.ts` 工具层及相关公共导出；数据源识别规则改由 API JSON prompt 定义。
+
 ---
 
 ## [0.1.16] - 2026-06-10
