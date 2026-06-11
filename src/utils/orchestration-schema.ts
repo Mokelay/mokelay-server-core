@@ -233,9 +233,16 @@ export type BlockExecutorInput = {
 
 export type BlockExecutor = (input: BlockExecutorInput) => Promise<Record<string, unknown>>
 
+export type BlockDefinition = {
+  executor: BlockExecutor
+  allowedOutputs: readonly string[]
+  requiresDatasource?: boolean
+}
+
 export type OrchestrationHandlerOptions = {
   loadApiJson?: (apiJsonUuid: string) => Promise<unknown>
   executeSql?: DatasourceSqlExecutor
+  blockDefinitions?: Readonly<Record<string, BlockDefinition>>
 }
 
 export type MokelaySuccessResponse = {

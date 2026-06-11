@@ -1,4 +1,4 @@
-import { type BlockExecutor } from '../orchestration-schema.js'
+import { type BlockDefinition, type BlockExecutor } from '../orchestration-schema.js'
 import { executeAddSessionBlock } from './addSession.js'
 import { executeAnalyzeDataSourceBlock } from './analyzeDataSource.js'
 import { executeAssertUniqueBlock } from './assertUnique.js'
@@ -20,59 +20,48 @@ import { executeSchemaBlock } from './schema.js'
 import { executeUpdateBlock } from './update.js'
 import { executeUpsertBlock } from './upsert.js'
 
-export const allowedBlockOutputs: Record<string, readonly string[]> = {
-  list: ['datas'],
-  page: ['datas', 'total', 'totalPages', 'page', 'pageSize', 'hasPreviousPage', 'hasNextPage'],
-  count: ['total'],
-  read: ['data'],
-  delete: ['affected'],
-  create: ['uuid'],
-  upsert: ['uuid'],
-  assertUnique: [],
-  update: ['affected'],
-  schema: ['tables'],
-  addSession: [],
-  removeSession: [],
-  readSession: ['value'],
-  saveJsonToR2: ['key', 'directory', 'fileName', 'bucket', 'size', 'etag', 'skipped'],
-  analyzeDataSource: ['result'],
-  listApifoxApis: ['apis', 'count', 'openapi'],
-  listApifoxProjects: ['projects', 'count', 'raw'],
-  githubCommit: gitCommitOutputKeys,
-  gitlabCommit: gitCommitOutputKeys,
+export const blockDefinitions: Readonly<Record<string, BlockDefinition>> = {
+  list: { executor: executeListBlock, allowedOutputs: ['datas'], requiresDatasource: true },
+  page: {
+    executor: executePageBlock,
+    allowedOutputs: ['datas', 'total', 'totalPages', 'page', 'pageSize', 'hasPreviousPage', 'hasNextPage'],
+    requiresDatasource: true,
+  },
+  count: { executor: executeCountBlock, allowedOutputs: ['total'], requiresDatasource: true },
+  read: { executor: executeReadBlock, allowedOutputs: ['data'], requiresDatasource: true },
+  delete: { executor: executeDeleteBlock, allowedOutputs: ['affected'], requiresDatasource: true },
+  create: { executor: executeCreateBlock, allowedOutputs: ['uuid'], requiresDatasource: true },
+  upsert: { executor: executeUpsertBlock, allowedOutputs: ['uuid'], requiresDatasource: true },
+  assertUnique: { executor: executeAssertUniqueBlock, allowedOutputs: [], requiresDatasource: true },
+  update: { executor: executeUpdateBlock, allowedOutputs: ['affected'], requiresDatasource: true },
+  schema: { executor: executeSchemaBlock, allowedOutputs: ['tables'], requiresDatasource: true },
+  addSession: { executor: executeAddSessionBlock, allowedOutputs: [] },
+  removeSession: { executor: executeRemoveSessionBlock, allowedOutputs: [] },
+  readSession: { executor: executeReadSessionBlock, allowedOutputs: ['value'] },
+  saveJsonToR2: {
+    executor: executeSaveJsonToR2Block,
+    allowedOutputs: ['key', 'directory', 'fileName', 'bucket', 'size', 'etag', 'skipped'],
+  },
+  analyzeDataSource: { executor: executeAnalyzeDataSourceBlock, allowedOutputs: ['result'] },
+  listApifoxApis: { executor: executeListApifoxApisBlock, allowedOutputs: ['apis', 'count', 'openapi'] },
+  listApifoxProjects: {
+    executor: executeListApifoxProjectsBlock,
+    allowedOutputs: ['projects', 'count', 'raw'],
+  },
+  githubCommit: { executor: executeGithubCommitBlock, allowedOutputs: gitCommitOutputKeys },
+  gitlabCommit: { executor: executeGitlabCommitBlock, allowedOutputs: gitCommitOutputKeys },
 }
 
-export const databaseBlockFunctions = new Set([
-  'list',
-  'page',
-  'count',
-  'read',
-  'delete',
-  'create',
-  'upsert',
-  'assertUnique',
-  'update',
-  'schema',
-])
+export const allowedBlockOutputs = Object.fromEntries(
+  Object.entries(blockDefinitions).map(([functionName, definition]) => [functionName, definition.allowedOutputs]),
+) as Record<string, readonly string[]>
 
-export const blockExecutors: Record<string, BlockExecutor> = {
-  list: executeListBlock,
-  page: executePageBlock,
-  count: executeCountBlock,
-  read: executeReadBlock,
-  delete: executeDeleteBlock,
-  create: executeCreateBlock,
-  upsert: executeUpsertBlock,
-  assertUnique: executeAssertUniqueBlock,
-  update: executeUpdateBlock,
-  schema: executeSchemaBlock,
-  addSession: executeAddSessionBlock,
-  removeSession: executeRemoveSessionBlock,
-  readSession: executeReadSessionBlock,
-  saveJsonToR2: executeSaveJsonToR2Block,
-  analyzeDataSource: executeAnalyzeDataSourceBlock,
-  listApifoxApis: executeListApifoxApisBlock,
-  listApifoxProjects: executeListApifoxProjectsBlock,
-  githubCommit: executeGithubCommitBlock,
-  gitlabCommit: executeGitlabCommitBlock,
-}
+export const blockExecutors = Object.fromEntries(
+  Object.entries(blockDefinitions).map(([functionName, definition]) => [functionName, definition.executor]),
+) as Record<string, BlockExecutor>
+
+export const databaseBlockFunctions = new Set(
+  Object.entries(blockDefinitions)
+    .filter(([, definition]) => definition.requiresDatasource)
+    .map(([functionName]) => functionName),
+)

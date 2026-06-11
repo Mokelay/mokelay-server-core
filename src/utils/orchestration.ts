@@ -14,7 +14,7 @@ import {
   type EventHandler,
   type H3Event,
 } from 'h3'
-import { allowedBlockOutputs, blockExecutors, databaseBlockFunctions } from './blocks/index.js'
+import { blockDefinitions as builtInBlockDefinitions } from './blocks/index.js'
 import { identifierSql, isRecord, requireDatabaseType } from './blocks/shared.js'
 import { controllerExecutors } from './controllers/index.js'
 import {
@@ -29,6 +29,7 @@ import {
   parseApiJson,
   type ApiJson,
   type Block,
+  type BlockDefinition,
   type BlockExecutionContext,
   type CalculateTemplate,
   type Controller,
@@ -514,21 +515,32 @@ async function readRequestContext(event: H3Event, apiJson: ApiJson): Promise<Req
   }
 }
 
-function validateDeclaredOutputs(block: Block) {
-  if (!block.outputs?.length) {
-    return
+function resolveBlockDefinitions(customDefinitions: OrchestrationHandlerOptions['blockDefinitions']) {
+  if (!customDefinitions) {
+    return builtInBlockDefinitions
   }
 
-  const allowedOutputs = allowedBlockOutputs[block.functionName]
+  for (const functionName of Object.keys(customDefinitions)) {
+    if (Object.prototype.hasOwnProperty.call(builtInBlockDefinitions, functionName)) {
+      throw new Error(`Custom Block definition cannot override built-in Block: ${functionName}`)
+    }
+  }
 
-  if (!allowedOutputs) {
+  return {
+    ...builtInBlockDefinitions,
+    ...customDefinitions,
+  }
+}
+
+function validateDeclaredOutputs(block: Block, definition: BlockDefinition) {
+  if (!block.outputs?.length) {
     return
   }
 
   for (const outputName of block.outputs) {
     const key = declarationKey(outputName)
 
-    if (!allowedOutputs.includes(key)) {
+    if (!definition.allowedOutputs.includes(key)) {
       throw mokelayError('BLOCK_UNSUPPORTED_OUTPUT', `Block ${block.functionName} 不支持输出：${key}`, 400)
     }
   }
@@ -539,15 +551,18 @@ async function executeBlock(
   context: BlockExecutionContext,
   executeSql: DatasourceSqlExecutor,
   event: H3Event,
+  definitions: Readonly<Record<string, BlockDefinition>>,
   debugStep?: MokelayDebugBlockStep,
 ) {
-  const executor = blockExecutors[block.functionName]
+  const definition = Object.prototype.hasOwnProperty.call(definitions, block.functionName)
+    ? definitions[block.functionName]
+    : undefined
 
-  if (!executor) {
+  if (!definition) {
     throw mokelayError('BLOCK_UNSUPPORTED_FUNCTION', `不支持的 Block functionName：${block.functionName}`, 400)
   }
 
-  validateDeclaredOutputs(block)
+  validateDeclaredOutputs(block, definition)
 
   const inputs = await resolveTemplates(block.inputs, context) as Record<string, unknown>
 
@@ -560,7 +575,7 @@ async function executeBlock(
     outputs: {},
   }
 
-  const datasource = databaseBlockFunctions.has(block.functionName)
+  const datasource = definition.requiresDatasource
     ? normalizeDatasourceName(inputs.datasource)
     : undefined
   const databaseType = datasource ? datasourceDatabaseType(datasource) : undefined
@@ -572,7 +587,7 @@ async function executeBlock(
     return executeSql(query, datasource, requireDatabaseType(databaseType))
   }
 
-  const outputs = await executor({ event, block, inputs, executeSql: executeBlockSql, databaseType })
+  const outputs = await definition.executor({ event, block, inputs, executeSql: executeBlockSql, databaseType })
   context.blocks[block.uuid].outputs = outputs
 
   if (block.outputs) {
@@ -659,6 +674,7 @@ async function executeBlockGraph(
   context: BlockExecutionContext,
   executeSql: DatasourceSqlExecutor,
   event: H3Event,
+  definitions: Readonly<Record<string, BlockDefinition>>,
   debug?: MokelayDebugResponse,
 ) {
   const { starterNextBlock, blockMap } = buildBlockMap(blocks)
@@ -733,7 +749,7 @@ async function executeBlockGraph(
     }
 
     try {
-      await executeBlock(block, context, executeSql, event, debugStep)
+      await executeBlock(block, context, executeSql, event, definitions, debugStep)
       nextBlockUuid = block.nextBlock
       appendDebugStep = debugStep
         ? (step) => {
@@ -751,7 +767,12 @@ async function executeBlockGraph(
   }
 }
 
-export async function executeApiJson(event: H3Event, rawApiJson: unknown, options: OrchestrationHandlerOptions = {}) {
+async function executeApiJsonWithDefinitions(
+  event: H3Event,
+  rawApiJson: unknown,
+  options: OrchestrationHandlerOptions,
+  definitions: Readonly<Record<string, BlockDefinition>>,
+) {
   const apiJsonUuid = assertApiJsonUuid(getRouterParam(event, 'apiJsonUuid'))
   const includeDebugResponse = shouldIncludeDebug(event)
 
@@ -779,7 +800,7 @@ export async function executeApiJson(event: H3Event, rawApiJson: unknown, option
     blocks: {},
   }
 
-  await executeBlockGraph(apiJson.blocks, context, executeSql, event, debug)
+  await executeBlockGraph(apiJson.blocks, context, executeSql, event, definitions, debug)
 
   const data = apiJson.response == null ? null : await resolveTemplates(apiJson.response, context)
   const response: MokelaySuccessResponse = {
@@ -790,7 +811,13 @@ export async function executeApiJson(event: H3Event, rawApiJson: unknown, option
   return includeDebug(response, debug)
 }
 
+export async function executeApiJson(event: H3Event, rawApiJson: unknown, options: OrchestrationHandlerOptions = {}) {
+  return await executeApiJsonWithDefinitions(event, rawApiJson, options, resolveBlockDefinitions(options.blockDefinitions))
+}
+
 export function createMokelayOrchestrationHandler(options: OrchestrationHandlerOptions = {}): EventHandler {
+  const definitions = resolveBlockDefinitions(options.blockDefinitions)
+
   return defineEventHandler(async (event) => {
     try {
       const apiJsonUuid = assertApiJsonUuid(getRouterParam(event, 'apiJsonUuid'))
@@ -798,7 +825,7 @@ export function createMokelayOrchestrationHandler(options: OrchestrationHandlerO
         ? await options.loadApiJson(apiJsonUuid)
         : await loadApiJson(apiJsonUuid, options.executeSql)
 
-      return await executeApiJson(event, rawApiJson, options)
+      return await executeApiJsonWithDefinitions(event, rawApiJson, options, definitions)
     } catch (error) {
       setResponseStatus(event, 200)
       return includeDebug(toMokelayErrorResponse(error), getDebugResponse(event))

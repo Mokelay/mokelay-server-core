@@ -4,7 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+---
+
+## [0.1.16] - 2026-06-10
+
+### Added
+- `OrchestrationHandlerOptions.blockDefinitions`: 支持由宿主服务注入自定义 Block definition，每个 definition 声明执行器、允许输出和可选的数据源依赖。
+- 新增 `BlockDefinition` 公共类型；自定义 Block 与内置 Block 共用输出校验、模板解析、Debug 和 SQL 权限边界。
+
 ### Changed
+- `blocks/index`: 内置 Block 改为统一的 definition registry，并保留原有执行器、输出和数据库 Block registry 导出以兼容现有调用方。
 - `db.ts`: PostgreSQL 客户端不再注册 Mokelay 平台专属表 schema，数据库 Block 继续通过动态 SQL 访问数据源。
 
 ### Removed
