@@ -45,6 +45,7 @@ import {
   type OrchestrationHandlerOptions,
   type ProcessableKey,
   type ProcessorConfig,
+  type ResponseConfig,
   type RequestContext,
   type SqlExecutor,
   type StarterBlock,
@@ -667,6 +668,26 @@ function buildBlockMap(blocks: OrchestrationBlock[]) {
   return { starterNextBlock, blockMap }
 }
 
+function hasResponseConfig(apiJson: ApiJson) {
+  return Object.prototype.hasOwnProperty.call(apiJson, 'response')
+}
+
+function responseForTerminal(apiJson: ApiJson, terminalUuid: string): ResponseConfig {
+  if (apiJson.responses && Object.prototype.hasOwnProperty.call(apiJson.responses, terminalUuid)) {
+    return apiJson.responses[terminalUuid] ?? null
+  }
+
+  if (hasResponseConfig(apiJson)) {
+    return apiJson.response ?? null
+  }
+
+  if (apiJson.responses) {
+    throw mokelayError('API_JSON_INVALID_RESPONSE', `responses 缺少终点 ${terminalUuid} 的响应配置。`, 400)
+  }
+
+  return null
+}
+
 type AppendDebugStep = (step: MokelayDebugStep) => void
 
 async function executeBlockGraph(
@@ -680,6 +701,7 @@ async function executeBlockGraph(
   const { starterNextBlock, blockMap } = buildBlockMap(blocks)
   const visited = new Set<string>()
   let nextBlockUuid = starterNextBlock
+  let terminalUuid = 'starter'
   let appendDebugStep: AppendDebugStep | undefined = debug
     ? (step) => {
         debug.nextBlock = step
@@ -714,6 +736,7 @@ async function executeBlockGraph(
 
       try {
         const selectedNode = await executeController(block, context, debugStep)
+        terminalUuid = selectedNode.uuid
         nextBlockUuid = selectedNode.nextBlock
         appendDebugStep = debugStep?.node
           ? (step) => {
@@ -750,6 +773,7 @@ async function executeBlockGraph(
 
     try {
       await executeBlock(block, context, executeSql, event, definitions, debugStep)
+      terminalUuid = block.uuid
       nextBlockUuid = block.nextBlock
       appendDebugStep = debugStep
         ? (step) => {
@@ -765,6 +789,8 @@ async function executeBlockGraph(
       throw error
     }
   }
+
+  return terminalUuid
 }
 
 async function executeApiJsonWithDefinitions(
@@ -800,9 +826,10 @@ async function executeApiJsonWithDefinitions(
     blocks: {},
   }
 
-  await executeBlockGraph(apiJson.blocks, context, executeSql, event, definitions, debug)
+  const terminalUuid = await executeBlockGraph(apiJson.blocks, context, executeSql, event, definitions, debug)
+  const responseConfig = responseForTerminal(apiJson, terminalUuid)
 
-  const data = apiJson.response == null ? null : await resolveTemplates(apiJson.response, context)
+  const data = responseConfig == null ? null : await resolveTemplates(responseConfig, context)
   const response: MokelaySuccessResponse = {
     ok: true,
     data,

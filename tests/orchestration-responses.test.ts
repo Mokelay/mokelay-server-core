@@ -1,0 +1,167 @@
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { afterEach, describe, expect, it } from 'vitest'
+import { createApp, createRouter, toNodeListener } from 'h3'
+import { createMokelayOrchestrationHandler } from '../src/utils/orchestration.js'
+
+const servers: Server[] = []
+
+async function startServer(handler: ReturnType<typeof createMokelayOrchestrationHandler>) {
+  const app = createApp()
+  const router = createRouter()
+
+  router.use('/api/mokelay/:apiJsonUuid', handler)
+  app.use(router)
+
+  const server = createServer(toNodeListener(app))
+  servers.push(server)
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+
+  const { port } = server.address() as AddressInfo
+  return `http://127.0.0.1:${port}`
+}
+
+async function requestApi(rawApiJson: unknown, query = '') {
+  const handler = createMokelayOrchestrationHandler({
+    loadApiJson: async () => rawApiJson,
+    blockDefinitions: {
+      echoBlock: {
+        executor: async ({ inputs }) => ({ value: inputs.value }),
+        allowedOutputs: ['value'],
+      },
+    },
+  })
+  const baseUrl = await startServer(handler)
+  const response = await fetch(`${baseUrl}/api/mokelay/branch_response_test${query}`)
+
+  return await response.json() as Record<string, unknown>
+}
+
+function apiJson(overrides: Record<string, unknown> = {}) {
+  return {
+    uuid: 'branch_response_test',
+    method: 'GET',
+    request: {
+      query: [{ key: 'flag' }],
+    },
+    blocks: [
+      { uuid: 'starter', nextBlock: 'choose' },
+      {
+        uuid: 'choose',
+        functionName: 'if_controller',
+        type: 'controller',
+        inputs: {
+          value: { template: '{{request.query.flag}}' },
+        },
+        nodes: [
+          {
+            uuid: 'true_node',
+            value: true,
+            nextBlock: 'true_block',
+          },
+          {
+            uuid: 'false_node',
+            value: false,
+            nextBlock: null,
+          },
+        ],
+      },
+      {
+        uuid: 'true_block',
+        functionName: 'echoBlock',
+        inputs: {
+          value: 'true-output',
+        },
+        outputs: ['value'],
+        nextBlock: null,
+      },
+    ],
+    ...overrides,
+  }
+}
+
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()))
+  })))
+})
+
+describe('orchestration terminal responses', () => {
+  it('uses the response mapped to the selected terminal', async () => {
+    const rawApiJson = apiJson({
+      responses: {
+        true_block: {
+          branch: 'true',
+          value: { template: "{{blocks['true_block'].outputs.value}}" },
+        },
+        false_node: {
+          branch: 'false',
+          value: null,
+        },
+      },
+    })
+
+    await expect(requestApi(rawApiJson, '?flag=1')).resolves.toEqual({
+      ok: true,
+      data: {
+        branch: 'true',
+        value: 'true-output',
+      },
+    })
+    await expect(requestApi(rawApiJson)).resolves.toEqual({
+      ok: true,
+      data: {
+        branch: 'false',
+        value: null,
+      },
+    })
+  })
+
+  it('falls back to response when a terminal response is not configured', async () => {
+    await expect(requestApi(apiJson({
+      response: {
+        branch: 'fallback',
+      },
+      responses: {
+        true_block: {
+          branch: 'true',
+        },
+      },
+    }))).resolves.toEqual({
+      ok: true,
+      data: {
+        branch: 'fallback',
+      },
+    })
+  })
+
+  it('rejects response maps with missing or invalid terminals', async () => {
+    await expect(requestApi(apiJson({
+      responses: {
+        true_block: {
+          branch: 'true',
+        },
+      },
+    }))).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: 'API_JSON_INVALID_RESPONSE',
+      },
+    })
+
+    await expect(requestApi(apiJson({
+      response: null,
+      responses: {
+        missing_terminal: {
+          branch: 'missing',
+        },
+      },
+    }))).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: 'API_JSON_INVALID_RESPONSE',
+      },
+    })
+  })
+})

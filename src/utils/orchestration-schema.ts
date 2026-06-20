@@ -105,8 +105,10 @@ export type Controller = {
 }
 
 export type OrchestrationBlock = StarterBlock | Block | Controller
+export type ResponseConfig = Record<string, unknown> | null
 
 const nextBlockSchema = z.string().min(1, 'nextBlock 不能为空字符串。').nullable()
+const responseConfigSchema: z.ZodType<ResponseConfig, z.ZodTypeDef, unknown> = z.record(z.unknown()).nullable()
 
 const starterBlockSchema: z.ZodType<StarterBlock, z.ZodTypeDef, unknown> = z.object({
   uuid: z.literal('starter'),
@@ -156,7 +158,8 @@ const apiJsonSchema = z.object({
   method: z.string().min(1, 'method 不能为空。').transform((method) => method.toUpperCase()),
   request: requestSchema.optional().default({ header: [], query: [], body: [] }),
   blocks: z.array(blockSchema).default([]),
-  response: z.record(z.unknown()).nullable().optional(),
+  response: responseConfigSchema.optional(),
+  responses: z.record(responseConfigSchema).optional(),
 }).strict()
 
 export type ApiJson = z.infer<typeof apiJsonSchema>
@@ -276,6 +279,7 @@ export function parseApiJson(apiJsonUuid: string, value: unknown): ApiJson {
 
   assertUniqueDslUuids(parsed.data)
   assertApiJsonFlow(parsed.data)
+  assertApiJsonResponses(parsed.data)
 
   return parsed.data
 }
@@ -360,5 +364,64 @@ function assertApiJsonFlow(apiJson: ApiJson) {
     }
 
     validateNextBlock(block.uuid, block.nextBlock)
+  }
+}
+
+function hasOwn(value: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function collectTerminalUuids(apiJson: ApiJson) {
+  const terminalUuids = new Set<string>()
+
+  for (const block of apiJson.blocks) {
+    if (isControllerBlock(block)) {
+      for (const node of block.nodes) {
+        if (node.nextBlock === null) {
+          terminalUuids.add(node.uuid)
+        }
+      }
+
+      continue
+    }
+
+    if (block.nextBlock === null) {
+      terminalUuids.add(block.uuid)
+    }
+  }
+
+  return terminalUuids
+}
+
+function assertApiJsonResponses(apiJson: ApiJson) {
+  if (!apiJson.responses) {
+    return
+  }
+
+  const terminalUuids = collectTerminalUuids(apiJson)
+  const responseUuids = new Set(Object.keys(apiJson.responses))
+
+  for (const responseUuid of responseUuids) {
+    if (!terminalUuids.has(responseUuid)) {
+      throw mokelayError(
+        'API_JSON_INVALID_RESPONSE',
+        `responses.${responseUuid} 必须对应一个 nextBlock 为 null 的终点。`,
+        400,
+      )
+    }
+  }
+
+  if (hasOwn(apiJson, 'response')) {
+    return
+  }
+
+  for (const terminalUuid of terminalUuids) {
+    if (!responseUuids.has(terminalUuid)) {
+      throw mokelayError(
+        'API_JSON_INVALID_RESPONSE',
+        `responses 缺少终点 ${terminalUuid} 的响应配置。`,
+        400,
+      )
+    }
   }
 }
