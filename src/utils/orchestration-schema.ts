@@ -40,6 +40,7 @@ type LeafCondition = {
   fieldName: string
   fieldValue?: unknown
   conditionType: z.infer<typeof conditionTypeSchema>
+  optional?: boolean
 }
 
 type GroupCondition = {
@@ -56,6 +57,7 @@ export const conditionSchema: z.ZodType<OrchestrationCondition> = z.lazy(() => z
     fieldName: z.string().min(1, '条件字段不能为空。'),
     fieldValue: z.any(),
     conditionType: conditionTypeSchema,
+    optional: z.boolean().optional(),
   }).strict().refine((value) => Object.prototype.hasOwnProperty.call(value, 'fieldValue'), {
     message: 'fieldValue 不能为空。',
   }),

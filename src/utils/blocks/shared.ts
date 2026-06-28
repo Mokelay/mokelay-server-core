@@ -56,10 +56,29 @@ export function getConditions(value: unknown): OrchestrationCondition[] {
   return parsed.data
 }
 
-export function buildConditionSql(condition: OrchestrationCondition): SQL {
+function isEmptyOptionalConditionValue(value: unknown) {
+  return value === undefined
+    || value === null
+    || value === ''
+    || (Array.isArray(value) && value.length === 0)
+}
+
+export function buildConditionSql(condition: OrchestrationCondition): SQL | undefined {
   if (condition.group) {
-    const parts = condition.groups.map((item) => sql`(${buildConditionSql(item)})`)
+    const parts = condition.groups.flatMap((item) => {
+      const conditionSql = buildConditionSql(item)
+      return conditionSql ? [sql`(${conditionSql})`] : []
+    })
+
+    if (parts.length === 0) {
+      return undefined
+    }
+
     return sql.join(parts, condition.groupType === 'AND' ? sql` AND ` : sql` OR `)
+  }
+
+  if (condition.optional === true && isEmptyOptionalConditionValue(condition.fieldValue)) {
+    return undefined
   }
 
   const column = identifierSql(condition.fieldName, 'fieldName', 'BLOCK_INVALID_CONDITIONS')
@@ -96,11 +115,16 @@ export function buildConditionSql(condition: OrchestrationCondition): SQL {
 }
 
 export function buildWhereSql(conditions: OrchestrationCondition[]) {
-  if (conditions.length === 0) {
+  const parts = conditions.flatMap((condition) => {
+    const conditionSql = buildConditionSql(condition)
+    return conditionSql ? [sql`(${conditionSql})`] : []
+  })
+
+  if (parts.length === 0) {
     return undefined
   }
 
-  return sql.join(conditions.map((condition) => sql`(${buildConditionSql(condition)})`), sql` AND `)
+  return sql.join(parts, sql` AND `)
 }
 
 export function getPositiveInteger(value: unknown, name: string, defaultValue: number, errorCode: MokelayErrorCode) {
