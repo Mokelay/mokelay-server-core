@@ -13,10 +13,45 @@ import {
 } from './shared.js'
 
 /**
- * page block
- * 作用：按 table、fields、conditions、orderBy 查询分页数据，并额外计算分页信息。
- * inputs：datasource 数据源；table 表名；fields 查询字段数组；conditions 可选过滤条件；orderBy 可选排序；page/pageSize 可选正整数。
- * outputs：datas、total、totalPages、page、pageSize、hasPreviousPage、hasNextPage。
+ * @serverBlockDoc
+ * {
+ *   "version": 1,
+ *   "functionName": "page",
+ *   "displayName": "分页查询",
+ *   "category": "database",
+ *   "description": "按 table、fields、conditions、orderBy 查询分页数据，并额外计算分页信息。",
+ *   "inputs": [
+ *     { "key": "datasource", "type": "string", "required": true, "description": "数据源名称，对应 ${datasource}_DATABASE_URL。" },
+ *     { "key": "table", "type": "string", "required": true, "description": "数据库表名，支持 schema.table。" },
+ *     { "key": "fields", "type": "string[]", "required": true, "description": "需要返回的字段列表。" },
+ *     { "key": "conditions", "type": "OrchestrationCondition[]", "required": false, "description": "可选过滤条件。" },
+ *     { "key": "orderBy", "type": "OrderBy[]", "required": false, "description": "可选排序配置。" },
+ *     { "key": "page", "type": "number|string", "required": false, "defaultValue": 1, "description": "页码，必须为正整数。" },
+ *     { "key": "pageSize", "type": "number|string", "required": false, "defaultValue": 20, "description": "每页数量，必须为正整数。" }
+ *   ],
+ *   "outputs": [
+ *     { "key": "datas", "type": "Record<string, unknown>[]", "description": "当前页 rows 数组。" },
+ *     { "key": "total", "type": "number", "description": "匹配总数。" },
+ *     { "key": "totalPages", "type": "number", "description": "总页数。" },
+ *     { "key": "page", "type": "number", "description": "标准化后的当前页码。" },
+ *     { "key": "pageSize", "type": "number", "description": "标准化后的每页数量。" },
+ *     { "key": "hasPreviousPage", "type": "boolean", "description": "是否有上一页。" },
+ *     { "key": "hasNextPage", "type": "boolean", "description": "是否有下一页。" }
+ *   ],
+ *   "errors": [
+ *     { "code": "BLOCK_INVALID_TABLE", "description": "table 为空或不是合法 SQL 标识符。" },
+ *     { "code": "BLOCK_INVALID_FIELDS", "description": "fields 不是非空字符串数组。" },
+ *     { "code": "BLOCK_INVALID_PAGE", "description": "page 不是正整数。" },
+ *     { "code": "BLOCK_INVALID_PAGE_SIZE", "description": "pageSize 不是正整数。" }
+ *   ],
+ *   "config": [],
+ *   "runtime": [
+ *     { "key": "requiresDatasource", "type": "boolean", "value": true, "description": "需要 datasource，并使用对应数据库连接执行 SQL。" }
+ *   ],
+ *   "examples": [
+ *     { "title": "分页查询页面", "block": { "uuid": "page_pages", "functionName": "page", "inputs": { "datasource": "Mokelay", "table": "pages", "fields": ["uuid", "name"], "page": { "template": "{{request.query.page}}" }, "pageSize": { "template": "{{request.query.pageSize}}" } }, "outputs": ["datas", "total", "totalPages", "page", "pageSize", "hasPreviousPage", "hasNextPage"], "nextBlock": null } }
+ *   ]
+ * }
  */
 export const executePageBlock: BlockExecutor = async ({ inputs, executeSql, databaseType }) => {
   const actualDatabaseType = requireDatabaseType(databaseType)

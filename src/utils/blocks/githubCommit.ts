@@ -15,52 +15,6 @@ import { mokelayError } from '../mokelay-error.js'
 
 const defaultGithubApiBaseUrl = 'https://api.github.com'
 
-/**
- * githubCommit block
- *
- * 作用：
- * 通过 GitHub REST Git Database API 在远程仓库创建一个 commit，并把目标分支更新到该 commit。
- * 该 block 不依赖服务端本地 Git 工作目录，也不会执行 shell git 命令。
- *
- * inputs：
- * - token: 必填。GitHub 访问令牌，直接填入 API JSON 时会在 debug 输出中脱敏为 [redacted]。
- *   推荐来源：
- *   1. Fine-grained Personal Access Token：GitHub -> Settings -> Developer settings
- *      -> Personal access tokens -> Fine-grained tokens。
- *   2. GitHub App installation token。
- *   令牌至少需要目标仓库的 Contents: Read and write 权限，因为本 block 会读取 ref/commit/tree，
- *   并创建 blob/tree/commit、更新 branch ref。
- * - repo: 必填。目标仓库，格式固定为 "owner/repo"，例如 "mokelay/mokelay-server"。
- * - branch: 必填。目标分支名，例如 "main" 或 "release/api-json"；分支必须已存在，block 不会自动创建分支。
- * - message: 必填。commit message，例如 "Publish API JSON"。
- * - files: 必填非空数组。一次 commit 中要变更的文件列表。
- *   - path: 必填。仓库内相对路径，例如 "server/assets/mokelay-apis/demo.json"；
- *     不能是绝对路径，不能包含 ".."、反斜杠或空 path segment。
- *   - action: 可选，默认 "upsert"。支持：
- *     - "upsert": 文件不存在则新增，存在则更新。
- *     - "delete": 删除文件；delete 项不能设置 content。
- *   - content: action="upsert" 时必填。文件内容字符串。
- *   - encoding: 可选，默认 "utf8"。支持：
- *     - "utf8": 普通文本内容，会以 GitHub API 的 "utf-8" 传给 blob API。
- *     - "base64": base64 编码内容，适合二进制或调用方已编码内容。
- * - apiBaseUrl: 可选，默认 "https://api.github.com"。GitHub Enterprise 可配置成企业 API 地址。
- * - authorName / authorEmail: 可选，但必须同时配置。用于设置 commit author。
- * - expectedHeadSha: 可选。乐观锁；如果远程分支当前 HEAD 不是该 SHA，则返回
- *   BLOCK_GIT_HEAD_MISMATCH，避免覆盖调用方未预期的新提交。
- *
- * outputs：
- * - provider: 固定为 "github"。
- * - repo: 输入 repo，例如 "owner/repo"。
- * - projectId: 固定为 null；该字段为 GitLab 输出兼容保留。
- * - branch: 实际提交的目标分支。
- * - commitSha: 新创建 commit 的完整 SHA。
- * - commitUrl: 新 commit 的 GitHub 页面 URL。
- * - treeSha: 新创建 tree 的 SHA。
- * - parentSha: 提交前目标分支的 HEAD SHA。
- * - fileCount: files 总数。
- * - upsertedCount: action="upsert" 的文件数量。
- * - deletedCount: action="delete" 的文件数量。
- */
 
 function githubApiUrl(apiBaseUrl: string, path: string) {
   return `${apiBaseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
@@ -106,6 +60,56 @@ function githubAuthor(inputs: ReturnType<typeof normalizeGitCommitInputs>) {
   }
 }
 
+/**
+ * @serverBlockDoc
+ * {
+ *   "version": 1,
+ *   "functionName": "githubCommit",
+ *   "displayName": "提交 GitHub 仓库",
+ *   "category": "integration",
+ *   "description": "通过 GitHub REST Git Database API 在远程仓库创建 commit，并把目标分支更新到该 commit。",
+ *   "inputs": [
+ *     { "key": "token", "type": "string", "required": true, "description": "GitHub 访问令牌；debug 输出会脱敏。" },
+ *     { "key": "repo", "type": "string", "required": true, "description": "目标仓库，格式 owner/repo。" },
+ *     { "key": "branch", "type": "string", "required": true, "description": "已存在的目标分支名。" },
+ *     { "key": "message", "type": "string", "required": true, "description": "commit message。" },
+ *     { "key": "files", "type": "GitFile[]", "required": true, "description": "非空文件变更数组；action 支持 upsert/delete，encoding 支持 utf8/base64。" },
+ *     { "key": "apiBaseUrl", "type": "string", "required": false, "defaultValue": "https://api.github.com", "description": "GitHub Enterprise API 地址。" },
+ *     { "key": "authorName", "type": "string", "required": false, "description": "commit author 名称；需与 authorEmail 同时配置。" },
+ *     { "key": "authorEmail", "type": "string", "required": false, "description": "commit author 邮箱；需与 authorName 同时配置。" },
+ *     { "key": "expectedHeadSha", "type": "string", "required": false, "description": "乐观锁，远程分支 HEAD 不一致时拒绝提交。" }
+ *   ],
+ *   "outputs": [
+ *     { "key": "provider", "type": "github", "description": "固定为 github。" },
+ *     { "key": "repo", "type": "string", "description": "输入仓库 owner/repo。" },
+ *     { "key": "projectId", "type": "null", "description": "GitLab 兼容字段，固定为 null。" },
+ *     { "key": "branch", "type": "string", "description": "实际提交分支。" },
+ *     { "key": "commitSha", "type": "string", "description": "新 commit SHA。" },
+ *     { "key": "commitUrl", "type": "string|null", "description": "新 commit 页面 URL。" },
+ *     { "key": "treeSha", "type": "string|null", "description": "新 tree SHA。" },
+ *     { "key": "parentSha", "type": "string", "description": "提交前分支 HEAD SHA。" },
+ *     { "key": "fileCount", "type": "number", "description": "files 总数。" },
+ *     { "key": "upsertedCount", "type": "number", "description": "upsert 文件数量。" },
+ *     { "key": "deletedCount", "type": "number", "description": "delete 文件数量。" }
+ *   ],
+ *   "errors": [
+ *     { "code": "BLOCK_GIT_INPUT_INVALID", "description": "token/repo/branch/message/files/author 输入无效。" },
+ *     { "code": "BLOCK_GIT_BRANCH_NOT_FOUND", "description": "目标分支不存在。" },
+ *     { "code": "BLOCK_GIT_HEAD_MISMATCH", "description": "expectedHeadSha 与远程 HEAD 不一致。" },
+ *     { "code": "BLOCK_GIT_REQUEST_FAILED", "description": "GitHub API 请求失败或返回内容无效。" }
+ *   ],
+ *   "config": [
+ *     { "key": "GitHub token permission", "type": "external", "required": true, "description": "令牌至少需要目标仓库 Contents: Read and write 权限。" }
+ *   ],
+ *   "runtime": [
+ *     { "key": "requiresDatasource", "type": "boolean", "value": false, "description": "不需要数据库连接。" },
+ *     { "key": "network", "type": "string", "value": "GitHub REST API", "description": "会读取 ref/commit/tree，并创建 blob/tree/commit、更新 ref。" }
+ *   ],
+ *   "examples": [
+ *     { "title": "提交 API JSON", "block": { "uuid": "github_commit_block", "functionName": "githubCommit", "inputs": { "token": { "template": "{{request.body.token}}" }, "repo": "mokelay/mokelay-server", "branch": "main", "message": "Publish API JSON", "files": [{ "path": "server/assets/mokelay-apis/demo.json", "action": "upsert", "content": "{}", "encoding": "utf8" }] }, "outputs": ["provider", "repo", "projectId", "branch", "commitSha", "commitUrl", "treeSha", "parentSha", "fileCount", "upsertedCount", "deletedCount"], "nextBlock": null } }
+ *   ]
+ * }
+ */
 export const executeGithubCommitBlock: BlockExecutor = async ({ inputs }): Promise<GitCommitOutputs> => {
   const normalizedInputs = normalizeGitCommitInputs(inputs)
   const repo = normalizeGitRepo(inputs.repo)

@@ -23,10 +23,41 @@ function normalizeScopes(value: unknown, provider: ReturnType<typeof normalizeOA
 }
 
 /**
- * oauthAuthorizeUrl block
- * 作用：生成 OAuth provider 授权 URL，并将 state/PKCE/redirect 写入临时编排 session。
- * inputs：provider 必填；redirect 可选且只能是站内相对路径；scopes 可选。
- * outputs：redirectUrl、provider、state。
+ * @serverBlockDoc
+ * {
+ *   "version": 1,
+ *   "functionName": "oauthAuthorizeUrl",
+ *   "displayName": "生成 OAuth 授权地址",
+ *   "category": "auth",
+ *   "description": "生成 OAuth provider 授权 URL，并将 state、PKCE verifier 和 redirect 写入临时编排 session。",
+ *   "inputs": [
+ *     { "key": "provider", "type": "google|github", "required": true, "description": "OAuth provider。" },
+ *     { "key": "redirect", "type": "string", "required": false, "description": "授权完成后的站内相对跳转地址。" },
+ *     { "key": "redirectOrigin", "type": "string", "required": false, "description": "前端跳转 origin；未传时从请求推导。" },
+ *     { "key": "scopes", "type": "string[]", "required": false, "description": "OAuth scope；未传时使用 provider 默认值。" }
+ *   ],
+ *   "outputs": [
+ *     { "key": "redirectUrl", "type": "string", "description": "Provider 授权 URL。" },
+ *     { "key": "provider", "type": "string", "description": "标准化后的 provider。" },
+ *     { "key": "state", "type": "string", "description": "本次授权 state。" }
+ *   ],
+ *   "errors": [
+ *     { "code": "BLOCK_OAUTH_PROVIDER_INVALID", "description": "provider 不受支持。" },
+ *     { "code": "BLOCK_OAUTH_REDIRECT_INVALID", "description": "redirect 或 redirectOrigin 不合法。" },
+ *     { "code": "BLOCK_OAUTH_CONFIG_MISSING", "description": "provider client id 配置缺失。" }
+ *   ],
+ *   "config": [
+ *     { "key": "GOOGLE_OAUTH_CLIENT_ID", "type": "string", "required": false, "description": "Google OAuth client id。" },
+ *     { "key": "GITHUB_OAUTH_CLIENT_ID", "type": "string", "required": false, "description": "GitHub OAuth client id。" }
+ *   ],
+ *   "runtime": [
+ *     { "key": "requiresDatasource", "type": "boolean", "value": false, "description": "不需要数据库连接。" },
+ *     { "key": "sideEffect", "type": "string", "value": "set-cookie", "description": "会写入临时 OAuth session。" }
+ *   ],
+ *   "examples": [
+ *     { "title": "开始 Google OAuth", "block": { "uuid": "oauth_google_start", "functionName": "oauthAuthorizeUrl", "inputs": { "provider": "google", "redirect": "/dashboard" }, "outputs": ["redirectUrl", "provider", "state"], "nextBlock": null } }
+ *   ]
+ * }
  */
 export const executeOAuthAuthorizeUrlBlock: BlockExecutor = async ({ event, inputs }) => {
   const provider = normalizeOAuthProvider(inputs.provider)

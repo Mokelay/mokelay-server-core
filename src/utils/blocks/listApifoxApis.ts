@@ -603,10 +603,45 @@ async function parseOpenapiResponse(response: Response) {
 }
 
 /**
- * listApifoxApis block
- * 作用：调用 APIFox 开放 API 导出 OpenAPI，并从 paths 中提取接口列表。
- * inputs：projectId 必填；baseUrl、locale、branchId、moduleId、folderId、apiId、includeRawOpenapi 可选。
- * outputs：apis、count、openapi。
+ * @serverBlockDoc
+ * {
+ *   "version": 1,
+ *   "functionName": "listApifoxApis",
+ *   "displayName": "读取 APIFox 接口",
+ *   "category": "integration",
+ *   "description": "调用 APIFox 开放 API 导出 OpenAPI，并从 paths 中提取接口列表。",
+ *   "inputs": [
+ *     { "key": "projectId", "type": "string|number", "required": true, "description": "APIFox 项目 ID。" },
+ *     { "key": "baseUrl", "type": "string", "required": false, "description": "APIFox API 基础地址。" },
+ *     { "key": "locale", "type": "string", "required": false, "description": "APIFox locale 参数。" },
+ *     { "key": "branchId", "type": "number|string", "required": false, "description": "可选分支 ID。" },
+ *     { "key": "moduleId", "type": "number|string", "required": false, "description": "可选模块 ID。" },
+ *     { "key": "folderId", "type": "number|string", "required": false, "description": "可选目录 ID。" },
+ *     { "key": "apiId", "type": "number|string", "required": false, "description": "可选接口 ID。" },
+ *     { "key": "includeRawOpenapi", "type": "boolean", "required": false, "defaultValue": false, "description": "是否返回原始 OpenAPI 文档。" }
+ *   ],
+ *   "outputs": [
+ *     { "key": "apis", "type": "ApifoxApi[]", "description": "从 OpenAPI paths 中提取出的接口列表。" },
+ *     { "key": "count", "type": "number", "description": "接口数量。" },
+ *     { "key": "openapi", "type": "unknown|null", "description": "includeRawOpenapi=true 时返回原始 OpenAPI，否则为 null。" }
+ *   ],
+ *   "errors": [
+ *     { "code": "BLOCK_APIFOX_CONFIG_MISSING", "description": "APIFox access token 未配置。" },
+ *     { "code": "BLOCK_APIFOX_INPUT_INVALID", "description": "projectId 或筛选 ID 输入无效。" },
+ *     { "code": "BLOCK_APIFOX_REQUEST_FAILED", "description": "APIFox OpenAPI 导出请求失败。" },
+ *     { "code": "BLOCK_APIFOX_RESPONSE_INVALID", "description": "APIFox 返回内容不是合法 OpenAPI JSON。" }
+ *   ],
+ *   "config": [
+ *     { "key": "APIFOX_ACCESS_TOKEN", "type": "string", "required": true, "description": "APIFox 开放 API access token。" }
+ *   ],
+ *   "runtime": [
+ *     { "key": "requiresDatasource", "type": "boolean", "value": false, "description": "不需要数据库连接。" },
+ *     { "key": "network", "type": "string", "value": "APIFox Open API", "description": "会请求 APIFox OpenAPI 导出接口。" }
+ *   ],
+ *   "examples": [
+ *     { "title": "列出项目接口", "block": { "uuid": "list_apifox_apis", "functionName": "listApifoxApis", "inputs": { "projectId": { "template": "{{request.query.projectId}}" } }, "outputs": ["apis", "count", "openapi"], "nextBlock": null } }
+ *   ]
+ * }
  */
 export const executeListApifoxApisBlock: BlockExecutor = async ({ inputs }) => {
   const projectId = normalizeProjectId(inputs.projectId)

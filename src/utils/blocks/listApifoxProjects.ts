@@ -82,10 +82,40 @@ async function parseProjectsResponse(response: Response) {
 }
 
 /**
- * listApifoxProjects block
- * 作用：调用 APIFox 开放 API 读取当前访问令牌可见的项目列表。
- * inputs：baseUrl、locale、includeRawResponse 可选。
- * outputs：projects、count、raw。
+ * @serverBlockDoc
+ * {
+ *   "version": 1,
+ *   "functionName": "listApifoxProjects",
+ *   "displayName": "读取 APIFox 项目",
+ *   "category": "integration",
+ *   "description": "调用 APIFox 开放 API 读取当前访问令牌可见的项目列表。",
+ *   "inputs": [
+ *     { "key": "baseUrl", "type": "string", "required": false, "description": "APIFox API 基础地址。" },
+ *     { "key": "locale", "type": "string", "required": false, "description": "APIFox locale 参数。" },
+ *     { "key": "includeRawResponse", "type": "boolean", "required": false, "defaultValue": false, "description": "是否在 raw 输出中保留原始响应。" }
+ *   ],
+ *   "outputs": [
+ *     { "key": "projects", "type": "ApifoxProject[]", "description": "标准化后的项目列表。" },
+ *     { "key": "count", "type": "number", "description": "项目数量。" },
+ *     { "key": "raw", "type": "unknown|null", "description": "includeRawResponse=true 时返回原始响应，否则为 null。" }
+ *   ],
+ *   "errors": [
+ *     { "code": "BLOCK_APIFOX_CONFIG_MISSING", "description": "APIFox access token 未配置。" },
+ *     { "code": "BLOCK_APIFOX_INPUT_INVALID", "description": "baseUrl 或 locale 输入无效。" },
+ *     { "code": "BLOCK_APIFOX_REQUEST_FAILED", "description": "APIFox 项目列表请求失败。" },
+ *     { "code": "BLOCK_APIFOX_RESPONSE_INVALID", "description": "APIFox 返回内容不是预期 JSON 结构。" }
+ *   ],
+ *   "config": [
+ *     { "key": "APIFOX_ACCESS_TOKEN", "type": "string", "required": true, "description": "APIFox 开放 API access token。" }
+ *   ],
+ *   "runtime": [
+ *     { "key": "requiresDatasource", "type": "boolean", "value": false, "description": "不需要数据库连接。" },
+ *     { "key": "network", "type": "string", "value": "APIFox Open API", "description": "会请求 APIFox 项目列表接口。" }
+ *   ],
+ *   "examples": [
+ *     { "title": "列出项目", "block": { "uuid": "list_apifox_projects", "functionName": "listApifoxProjects", "inputs": { "includeRawResponse": false }, "outputs": ["projects", "count", "raw"], "nextBlock": null } }
+ *   ]
+ * }
  */
 export const executeListApifoxProjectsBlock: BlockExecutor = async ({ inputs }) => {
   const baseUrl = normalizeApifoxBaseUrl(inputs.baseUrl)

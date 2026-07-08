@@ -86,10 +86,37 @@ async function mysqlGeneratedIdValue(
 }
 
 /**
- * create block
- * 作用：向 table 插入一条记录，并把物理 idField 映射为标准输出 uuid。
- * inputs：datasource 数据源；table 表名；fields 待插入字段对象；idField 插入后返回或读取的唯一 ID 字段。
- * outputs：uuid，值为插入记录的唯一 ID。
+ * @serverBlockDoc
+ * {
+ *   "version": 1,
+ *   "functionName": "create",
+ *   "displayName": "创建记录",
+ *   "category": "database",
+ *   "description": "向 table 插入一条记录，并把物理 idField 映射为标准输出 uuid。",
+ *   "inputs": [
+ *     { "key": "datasource", "type": "string", "required": true, "description": "数据源名称，对应 ${datasource}_DATABASE_URL。" },
+ *     { "key": "table", "type": "string", "required": true, "description": "数据库表名，支持 schema.table。" },
+ *     { "key": "fields", "type": "Record<string, unknown>", "required": true, "description": "待插入字段和值。" },
+ *     { "key": "idField", "type": "string", "required": true, "description": "插入后返回或读取的唯一 ID 字段。" }
+ *   ],
+ *   "outputs": [
+ *     { "key": "uuid", "type": "string|number", "description": "插入记录的唯一 ID。" }
+ *   ],
+ *   "errors": [
+ *     { "code": "BLOCK_INVALID_TABLE", "description": "table 为空或不是合法 SQL 标识符。" },
+ *     { "code": "BLOCK_INVALID_FIELDS", "description": "fields 不是非空对象或字段名非法。" },
+ *     { "code": "BLOCK_INVALID_ID_FIELD", "description": "idField 为空或不是合法字段名。" },
+ *     { "code": "BLOCK_CREATE_MISSING_ID", "description": "插入成功但无法得到唯一 ID。" },
+ *     { "code": "BLOCK_DUPLICATE_RECORD", "description": "数据库唯一约束冲突。" }
+ *   ],
+ *   "config": [],
+ *   "runtime": [
+ *     { "key": "requiresDatasource", "type": "boolean", "value": true, "description": "需要 datasource；Postgres 使用 RETURNING，MySQL 使用 insertId 或 fields/idField。" }
+ *   ],
+ *   "examples": [
+ *     { "title": "创建页面", "block": { "uuid": "create_page", "functionName": "create", "inputs": { "datasource": "Mokelay", "table": "pages", "idField": "uuid", "fields": { "name": { "template": "{{request.body.name}}" }, "blocks": [] } }, "outputs": ["uuid"], "nextBlock": null } }
+ *   ]
+ * }
  */
 export const executeCreateBlock: BlockExecutor = async ({ inputs, executeSql, databaseType }) => {
   const actualDatabaseType = requireDatabaseType(databaseType)

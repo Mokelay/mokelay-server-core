@@ -172,10 +172,39 @@ function parseResult(response: {
 }
 
 /**
- * openAI block
- * 作用：调用 OpenAI Responses API，并将返回的 JSON object 解析到 result。
- * inputs：prompt 必填；userInput 或 image 至少提供一个。
- * outputs：result。
+ * @serverBlockDoc
+ * {
+ *   "version": 1,
+ *   "functionName": "openAI",
+ *   "displayName": "调用 OpenAI",
+ *   "category": "ai",
+ *   "description": "调用 OpenAI Responses API，并将返回的 JSON object 解析到 result。",
+ *   "inputs": [
+ *     { "key": "prompt", "type": "string", "required": true, "description": "developer prompt，要求模型返回 JSON object。" },
+ *     { "key": "userInput", "type": "unknown", "required": false, "description": "用户输入，会被序列化为文本；与 image 至少提供一个。" },
+ *     { "key": "image", "type": "UploadedFile", "required": false, "description": "multipart 上传图片；与 userInput 至少提供一个。" }
+ *   ],
+ *   "outputs": [
+ *     { "key": "result", "type": "Record<string, unknown>", "description": "模型返回并解析后的 JSON 对象。" }
+ *   ],
+ *   "errors": [
+ *     { "code": "BLOCK_AI_INPUT_INVALID", "description": "prompt 缺失、userInput/image 都未提供，或图片输入无效。" },
+ *     { "code": "BLOCK_AI_CONFIG_MISSING", "description": "OPENAI_API_KEY 或 provider 配置缺失。" },
+ *     { "code": "BLOCK_AI_PROVIDER_FAILED", "description": "OpenAI 服务调用失败。" },
+ *     { "code": "BLOCK_AI_OUTPUT_INVALID", "description": "AI 返回内容不是合法 JSON object。" }
+ *   ],
+ *   "config": [
+ *     { "key": "OPENAI_API_KEY", "type": "string", "required": true, "description": "OpenAI API key。" },
+ *     { "key": "OPENAI_MODEL", "type": "string", "required": false, "defaultValue": "gpt-4.1-mini", "description": "Responses API 模型名。" }
+ *   ],
+ *   "runtime": [
+ *     { "key": "requiresDatasource", "type": "boolean", "value": false, "description": "不需要数据库连接。" },
+ *     { "key": "network", "type": "string", "value": "OpenAI Responses API", "description": "会发起外部 AI 服务请求。" }
+ *   ],
+ *   "examples": [
+ *     { "title": "生成 JSON", "block": { "uuid": "ai_block", "functionName": "openAI", "inputs": { "prompt": "Return a JSON object with a title field.", "userInput": { "template": "{{request.body.requirement}}" } }, "outputs": ["result"], "nextBlock": null } }
+ *   ]
+ * }
  */
 export const executeOpenAIBlock: BlockExecutor = async ({ inputs }) => {
   const prompt = normalizePrompt(inputs.prompt)
