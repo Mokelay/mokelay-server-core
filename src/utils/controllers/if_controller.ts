@@ -32,6 +32,34 @@ function validateIfNodes(nodes: ControllerNode[]) {
   }
 }
 
+/**
+ * @serverControllerDoc
+ * {
+ *   "version": 1,
+ *   "functionName": "if_controller",
+ *   "displayName": "条件控制器",
+ *   "category": "flow",
+ *   "description": "根据 inputs.value 的真假结果选择 true 或 false 分支节点继续执行。",
+ *   "inputs": [
+ *     { "key": "value", "type": "boolean|number|string|unknown", "required": true, "description": "分支判断值；boolean 按原值判断，number 大于 0 为 true，非空字符串为 true，其他值为 false。" }
+ *   ],
+ *   "nodes": [
+ *     { "key": "trueNode", "type": "ControllerNode", "required": true, "value": true, "description": "必须且只能配置一个 value=true 的节点。" },
+ *     { "key": "falseNode", "type": "ControllerNode", "required": true, "value": false, "description": "必须且只能配置一个 value=false 的节点。" }
+ *   ],
+ *   "errors": [
+ *     { "code": "CONTROLLER_INVALID_NODES", "description": "nodes 未配置为且仅配置为一个 true 节点和一个 false 节点。" }
+ *   ],
+ *   "config": [],
+ *   "runtime": [
+ *     { "key": "requiresDatasource", "type": "boolean", "value": false, "description": "不需要数据库连接。" },
+ *     { "key": "sideEffect", "type": "string", "value": "none", "description": "只选择流程分支，不产生外部副作用。" }
+ *   ],
+ *   "examples": [
+ *     { "title": "按发布状态分支", "controller": { "uuid": "publish_controller", "functionName": "if_controller", "type": "controller", "inputs": { "value": { "template": "{{request.body.published}}" } }, "nodes": [ { "uuid": "published_node", "value": true, "nextBlock": "publish_block" }, { "uuid": "draft_node", "value": false, "nextBlock": "save_block" } ] } }
+ *   ]
+ * }
+ */
 export const executeIfController: ControllerExecutor = ({ controller, inputs }) => {
   const { trueNodes, falseNodes, unsupportedNodes } = validateIfNodes(controller.nodes)
 
