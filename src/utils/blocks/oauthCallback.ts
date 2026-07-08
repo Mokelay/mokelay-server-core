@@ -9,6 +9,7 @@ import {
   normalizeOAuthProvider,
   oauthCallbackUrl,
   oauthFinalRedirectUrl,
+  oauthLoginRedirectUrl,
   resolveOAuthUser,
 } from './oauthShared.js'
 
@@ -18,10 +19,6 @@ function stringInput(value: unknown) {
 
 function booleanInput(value: unknown, defaultValue: boolean) {
   return typeof value === 'boolean' ? value : defaultValue
-}
-
-function loginRedirect(errorCode: string) {
-  return `/login?oauth_error=${encodeURIComponent(errorCode)}`
 }
 
 /**
@@ -40,7 +37,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
       isNewUser: false,
       linkedIdentity: false,
       provider,
-      redirectUrl: loginRedirect('provider_denied'),
+      redirectUrl: oauthLoginRedirectUrl('provider_denied'),
       errorCode: 'provider_denied',
     }
   }
@@ -54,7 +51,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
       isNewUser: false,
       linkedIdentity: false,
       provider,
-      redirectUrl: loginRedirect('missing_code'),
+      redirectUrl: oauthLoginRedirectUrl('missing_code'),
       errorCode: 'missing_code',
     }
   }
@@ -69,7 +66,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
       isNewUser: false,
       linkedIdentity: false,
       provider,
-      redirectUrl: loginRedirect('invalid_state'),
+      redirectUrl: oauthLoginRedirectUrl('invalid_state'),
       errorCode: 'invalid_state',
     }
   }
@@ -80,7 +77,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
       isNewUser: false,
       linkedIdentity: false,
       provider,
-      redirectUrl: loginRedirect('invalid_state'),
+      redirectUrl: oauthLoginRedirectUrl('invalid_state', session),
       errorCode: 'invalid_state',
     }
   }
@@ -123,7 +120,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
         isNewUser: false,
         linkedIdentity: false,
         provider,
-        redirectUrl: loginRedirect('email_unverified'),
+        redirectUrl: oauthLoginRedirectUrl('email_unverified', session),
         errorCode: 'email_unverified',
       }
     }
@@ -134,7 +131,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
         isNewUser: false,
         linkedIdentity: false,
         provider,
-        redirectUrl: loginRedirect('account_conflict'),
+        redirectUrl: oauthLoginRedirectUrl('account_conflict', session),
         errorCode: 'account_conflict',
       }
     }
@@ -145,7 +142,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
         isNewUser: false,
         linkedIdentity: false,
         provider,
-        redirectUrl: loginRedirect('provider_failed'),
+        redirectUrl: oauthLoginRedirectUrl('provider_failed', session),
         errorCode: 'provider_failed',
       }
     }

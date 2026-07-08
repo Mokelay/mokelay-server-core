@@ -103,29 +103,46 @@ function originFromUrl(value: string) {
 }
 
 export function normalizeOAuthRedirectOrigin(event: H3Event, value: unknown) {
-  const inputOrigin = typeof value === 'string' && value.trim()
-    ? originFromUrl(value.trim())
-    : ''
-  const requestOrigin = getRequestHeader(event, 'origin') || ''
-  const refererOrigin = originFromUrl(getRequestHeader(event, 'referer') || '')
-  const configuredOrigin = originFromUrl(process.env.OAUTH_APP_BASE_URL || '')
-  const origin = inputOrigin || requestOrigin || refererOrigin || configuredOrigin
+  const origins = [
+    typeof value === 'string' && value.trim() ? originFromUrl(value.trim()) : '',
+    getRequestHeader(event, 'origin') || '',
+    originFromUrl(getRequestHeader(event, 'referer') || ''),
+    configuredOAuthAppOrigin(),
+  ].filter(Boolean)
 
-  if (!origin) {
+  if (origins.length === 0) {
     return undefined
   }
 
-  if (!allowedOrigins().has(origin)) {
+  const allowed = allowedOrigins()
+  const origin = origins.find((candidate) => allowed.has(candidate))
+
+  if (!origin) {
     throw mokelayError('BLOCK_OAUTH_INPUT_INVALID', 'OAuth redirect origin 不在允许列表中。', 400)
   }
 
   return origin
 }
 
+export function configuredOAuthAppOrigin() {
+  return originFromUrl(process.env.OAUTH_APP_BASE_URL || '')
+}
+
 export function oauthFinalRedirectUrl(session: OAuthTempSession) {
   return session.redirectOrigin
     ? `${session.redirectOrigin}${session.redirect}`
     : session.redirect
+}
+
+export function oauthLoginRedirectUrl(errorCode: string, session?: OAuthTempSession) {
+  const redirect = `/login?oauth_error=${encodeURIComponent(errorCode)}`
+  const redirectOrigin = session?.redirectOrigin || configuredOAuthAppOrigin()
+
+  if (redirectOrigin && allowedOrigins().has(redirectOrigin)) {
+    return `${redirectOrigin}${redirect}`
+  }
+
+  return redirect
 }
 
 export function oauthClientId(provider: OAuthProvider) {
