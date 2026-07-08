@@ -10,6 +10,7 @@ import {
   getRouterParam,
   readBody,
   readMultipartFormData,
+  setResponseHeader,
   setResponseStatus,
   type EventHandler,
   type H3Event,
@@ -830,6 +831,24 @@ async function executeApiJsonWithDefinitions(
   const responseConfig = responseForTerminal(apiJson, terminalUuid)
 
   const data = responseConfig == null ? null : await resolveTemplates(responseConfig, context)
+  if (isRecord(data) && isRecord(data.redirect)) {
+    const redirectUrl = data.redirect.url
+    const statusCode = Number(data.redirect.statusCode ?? 302)
+
+    if (typeof redirectUrl !== 'string' || !redirectUrl.trim()) {
+      throw mokelayError('API_JSON_INVALID_RESPONSE', 'redirect.url 必须是非空字符串。', 400)
+    }
+
+    if (statusCode !== 302 && statusCode !== 303) {
+      throw mokelayError('API_JSON_INVALID_RESPONSE', 'redirect.statusCode 只能是 302 或 303。', 400)
+    }
+
+    setResponseStatus(event, statusCode)
+    setResponseHeader(event, 'Location', redirectUrl)
+
+    return ''
+  }
+
   const response: MokelaySuccessResponse = {
     ok: true,
     data,

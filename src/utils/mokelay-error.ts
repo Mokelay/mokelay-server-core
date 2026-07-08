@@ -52,6 +52,12 @@ export const mokelayErrorCodes = [
   'BLOCK_APIFOX_CONFIG_MISSING',
   'BLOCK_APIFOX_REQUEST_FAILED',
   'BLOCK_APIFOX_RESPONSE_INVALID',
+  'BLOCK_OAUTH_INPUT_INVALID',
+  'BLOCK_OAUTH_CONFIG_MISSING',
+  'BLOCK_OAUTH_STATE_INVALID',
+  'BLOCK_OAUTH_PROVIDER_FAILED',
+  'BLOCK_OAUTH_EMAIL_UNVERIFIED',
+  'BLOCK_OAUTH_ACCOUNT_CONFLICT',
   'BLOCK_GIT_INPUT_INVALID',
   'BLOCK_GIT_AUTH_FAILED',
   'BLOCK_GIT_BRANCH_NOT_FOUND',
@@ -86,7 +92,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function getMokelayErrorCode(error: unknown) {
-  if (!isError(error) || !isRecord(error.data)) {
+  if (!isRecord(error) || !isRecord(error.data)) {
     return undefined
   }
 
@@ -109,12 +115,16 @@ export function mokelayError(code: MokelayErrorCode, message: string, statusCode
 export function toMokelayErrorResponse(error: unknown): MokelayErrorResponse {
   const code = getMokelayErrorCode(error)
 
-  if (code && isError(error)) {
+  if (code && isRecord(error)) {
+    const message = typeof error.message === 'string' && error.message
+      ? error.message
+      : internalErrorMessage
+
     return {
       ok: false,
       error: {
         code,
-        message: error.message || internalErrorMessage,
+        message,
       },
     }
   }

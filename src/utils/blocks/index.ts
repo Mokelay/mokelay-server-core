@@ -11,6 +11,8 @@ import { executeListApifoxApisBlock } from './listApifoxApis.js'
 import { executeListApifoxProjectsBlock } from './listApifoxProjects.js'
 import { executeListBlock } from './list.js'
 import { executeOpenAIBlock } from './openAI.js'
+import { executeOAuthAuthorizeUrlBlock } from './oauthAuthorizeUrl.js'
+import { executeOAuthCallbackBlock } from './oauthCallback.js'
 import { executePageBlock } from './page.js'
 import { executeReadBlock } from './read.js'
 import { executeReadSessionBlock } from './readSession.js'
@@ -41,6 +43,15 @@ export const blockDefinitions: Readonly<Record<string, BlockDefinition>> = {
   saveJsonToR2: {
     executor: executeSaveJsonToR2Block,
     allowedOutputs: ['key', 'directory', 'fileName', 'bucket', 'size', 'etag', 'skipped'],
+  },
+  oauthAuthorizeUrl: {
+    executor: executeOAuthAuthorizeUrlBlock,
+    allowedOutputs: ['redirectUrl', 'provider', 'state'],
+  },
+  oauthCallback: {
+    executor: executeOAuthCallbackBlock,
+    allowedOutputs: ['user', 'isNewUser', 'linkedIdentity', 'provider', 'redirectUrl', 'errorCode'],
+    requiresDatasource: true,
   },
   openAI: { executor: executeOpenAIBlock, allowedOutputs: ['result'] },
   listApifoxApis: { executor: executeListApifoxApisBlock, allowedOutputs: ['apis', 'count', 'openapi'] },

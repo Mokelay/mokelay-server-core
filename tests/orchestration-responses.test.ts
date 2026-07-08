@@ -38,6 +38,23 @@ async function requestApi(rawApiJson: unknown, query = '') {
   return await response.json() as Record<string, unknown>
 }
 
+async function fetchApi(rawApiJson: unknown, query = '') {
+  const handler = createMokelayOrchestrationHandler({
+    loadApiJson: async () => rawApiJson,
+    blockDefinitions: {
+      echoBlock: {
+        executor: async ({ inputs }) => ({ value: inputs.value }),
+        allowedOutputs: ['value'],
+      },
+    },
+  })
+  const baseUrl = await startServer(handler)
+
+  return await fetch(`${baseUrl}/api/mokelay/branch_response_test${query}`, {
+    redirect: 'manual',
+  })
+}
+
 function apiJson(overrides: Record<string, unknown> = {}) {
   return {
     uuid: 'branch_response_test',
@@ -163,5 +180,24 @@ describe('orchestration terminal responses', () => {
         code: 'API_JSON_INVALID_RESPONSE',
       },
     })
+  })
+
+  it('supports redirect responses for selected terminals', async () => {
+    const response = await fetchApi(apiJson({
+      responses: {
+        true_block: {
+          redirect: {
+            statusCode: 302,
+            url: { template: "{{blocks['true_block'].outputs.value}}" },
+          },
+        },
+        false_node: {
+          branch: 'false',
+        },
+      },
+    }), '?flag=1')
+
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe('true-output')
   })
 })
