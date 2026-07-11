@@ -26,7 +26,7 @@ export const calculateTemplateSchema = z.object({
   processors: processorsSchema.optional().default([]),
 }).strict()
 
-const conditionTypeSchema = z.enum(['GE', 'GT', 'LE', 'LT', 'NEQ', 'EQ', 'NOTIN', 'IN'])
+const conditionTypeSchema = z.enum(['GE', 'GT', 'LE', 'LT', 'NEQ', 'EQ', 'NOTIN', 'IN', 'LIKE'])
 const groupTypeSchema = z.enum(['AND', 'OR'])
 
 export type CalculateTemplate = z.infer<typeof calculateTemplateSchema>

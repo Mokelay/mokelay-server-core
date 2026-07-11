@@ -47,6 +47,7 @@ function optionalSearchApiJson(overrides: Record<string, unknown> = {}) {
       query: [
         { key: 'uuid', processors: ['trim'] },
         { key: 'name', processors: ['trim'] },
+        { key: 'blockType', processors: ['trim'] },
         { key: 'created_at_begin', processors: ['trim'] },
         { key: 'created_at_end', processors: ['trim'] },
       ],
@@ -73,6 +74,13 @@ function optionalSearchApiJson(overrides: Record<string, unknown> = {}) {
               conditionType: 'EQ',
               fieldName: 'name',
               fieldValue: { template: '{{request.query.name}}' },
+              optional: true,
+            },
+            {
+              group: false,
+              conditionType: 'LIKE',
+              fieldName: 'block_type',
+              fieldValue: { template: '{{request.query.blockType}}' },
               optional: true,
             },
             {
@@ -179,6 +187,16 @@ describe('optional conditions', () => {
     expect(queries[0].sql).not.toContain('"id" =')
     expect(queries[0].params).toContain('Ada')
     expect(queries[0].params).toContain(createdAtBegin)
+  })
+
+  it('supports case-insensitive LIKE conditions', async () => {
+    const { queries } = await requestWithRecordedSql(
+      optionalSearchApiJson(),
+      '?blockType=form',
+    )
+
+    expect(queries[0].sql).toContain('LOWER("block_type") LIKE LOWER(')
+    expect(queries[0].params).toContain('%form%')
   })
 
   it('preserves existing required condition behavior', async () => {

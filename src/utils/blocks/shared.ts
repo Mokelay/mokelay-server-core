@@ -96,6 +96,8 @@ export function buildConditionSql(condition: OrchestrationCondition): SQL | unde
       return sql`${column} < ${condition.fieldValue}`
     case 'LE':
       return sql`${column} <= ${condition.fieldValue}`
+    case 'LIKE':
+      return sql`LOWER(${column}) LIKE LOWER(${`%${String(condition.fieldValue)}%`})`
     case 'IN':
     case 'NOTIN': {
       if (!Array.isArray(condition.fieldValue) || condition.fieldValue.length === 0) {
