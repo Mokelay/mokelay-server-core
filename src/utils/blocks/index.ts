@@ -3,6 +3,7 @@ import { executeAddSessionBlock } from './addSession.js'
 import { executeAssertUniqueBlock } from './assertUnique.js'
 import { executeCountBlock } from './count.js'
 import { executeCreateBlock } from './create.js'
+import { executeCreateSchemaBlock } from './createSchema.js'
 import { executeDeleteBlock } from './delete.js'
 import { executeGithubCommitBlock } from './githubCommit.js'
 import { executeGitlabCommitBlock } from './gitlabCommit.js'
@@ -17,6 +18,7 @@ import { executePageBlock } from './page.js'
 import { executeReadBlock } from './read.js'
 import { executeReadSessionBlock } from './readSession.js'
 import { executeRemoveSessionBlock } from './removeSession.js'
+import { executeRandomIdBlock } from './randomId.js'
 import { executeSaveJsonToR2Block } from './saveJsonToR2.js'
 import { executeSchemaBlock } from './schema.js'
 import { executeUpdateBlock } from './update.js'
@@ -33,6 +35,7 @@ export const blockDefinitions: Readonly<Record<string, BlockDefinition>> = {
   read: { executor: executeReadBlock, allowedOutputs: ['data'], requiresDatasource: true },
   delete: { executor: executeDeleteBlock, allowedOutputs: ['affected'], requiresDatasource: true },
   create: { executor: executeCreateBlock, allowedOutputs: ['uuid'], requiresDatasource: true },
+  createSchema: { executor: executeCreateSchemaBlock, allowedOutputs: ['schema', 'created', 'exists'], requiresDatasource: true },
   upsert: { executor: executeUpsertBlock, allowedOutputs: ['uuid'], requiresDatasource: true },
   assertUnique: { executor: executeAssertUniqueBlock, allowedOutputs: [], requiresDatasource: true },
   update: { executor: executeUpdateBlock, allowedOutputs: ['affected'], requiresDatasource: true },
@@ -40,6 +43,7 @@ export const blockDefinitions: Readonly<Record<string, BlockDefinition>> = {
   addSession: { executor: executeAddSessionBlock, allowedOutputs: [] },
   removeSession: { executor: executeRemoveSessionBlock, allowedOutputs: [] },
   readSession: { executor: executeReadSessionBlock, allowedOutputs: ['value'] },
+  randomId: { executor: executeRandomIdBlock, allowedOutputs: ['value'] },
   saveJsonToR2: {
     executor: executeSaveJsonToR2Block,
     allowedOutputs: ['key', 'directory', 'fileName', 'bucket', 'size', 'etag', 'skipped'],
