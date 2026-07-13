@@ -50,6 +50,16 @@ export const mokelayErrorCodes = [
   'BLOCK_AI_CONFIG_MISSING',
   'BLOCK_AI_PROVIDER_FAILED',
   'BLOCK_AI_OUTPUT_INVALID',
+  'BLOCK_PAGE_REFERENCE_DYNAMIC',
+  'BLOCK_PAGE_REFERENCE_SOURCE_INVALID',
+  'BLOCK_PAGE_REFERENCE_NOT_FOUND',
+  'BLOCK_PAGE_REFERENCE_SELF',
+  'BLOCK_PAGE_REFERENCE_CYCLE',
+  'BLOCK_PAGE_REFERENCE_ASSERTION_MISMATCH',
+  'BLOCK_PAGE_DELETE_REFERENCED',
+  'BLOCK_PAGE_NOT_FOUND',
+  'BLOCK_PAGE_UUID_INVALID',
+  'BLOCK_PAGE_GRAPH_NOT_READY',
   'BLOCK_APIFOX_INPUT_INVALID',
   'BLOCK_APIFOX_CONFIG_MISSING',
   'BLOCK_APIFOX_REQUEST_FAILED',
@@ -82,6 +92,7 @@ export type MokelayErrorResponse = {
   error: {
     code: MokelayErrorCode
     message: string
+    details?: unknown
   }
   debug?: MokelayDebugResponse
 }
@@ -105,11 +116,17 @@ function getMokelayErrorCode(error: unknown) {
     : undefined
 }
 
-export function mokelayError(code: MokelayErrorCode, message: string, statusCode = 500, cause?: unknown) {
+export function mokelayError(
+  code: MokelayErrorCode,
+  message: string,
+  statusCode = 500,
+  cause?: unknown,
+  details?: unknown,
+) {
   return createError({
     statusCode,
     message,
-    data: { code },
+    data: { code, ...(details === undefined ? {} : { details }) },
     cause,
   })
 }
@@ -122,11 +139,14 @@ export function toMokelayErrorResponse(error: unknown): MokelayErrorResponse {
       ? error.message
       : internalErrorMessage
 
+    const details = isRecord(error.data) ? error.data.details : undefined
+
     return {
       ok: false,
       error: {
         code,
         message,
+        ...(details === undefined ? {} : { details }),
       },
     }
   }

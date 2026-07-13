@@ -1,7 +1,12 @@
 import { type SQL } from 'drizzle-orm'
 import { type H3Event } from 'h3'
 import { z } from 'zod'
-import { type DatabaseType, type SqlExecutionResult } from './db.js'
+import {
+  type DatabaseType,
+  type SqlExecutionResult,
+  type TransactionOptions,
+  type TransactionRunner,
+} from './db.js'
 import { mokelayError } from './mokelay-error.js'
 
 const apiJsonUuidPattern = /^[A-Za-z0-9_-]{1,128}$/
@@ -228,12 +233,20 @@ export type DatasourceSqlExecutor = <T extends Record<string, unknown> = Record<
   databaseType: DatabaseType,
 ) => Promise<SqlExecutionResult<T>>
 
+export type DatasourceTransactionRunner = <T>(
+  datasource: string,
+  callback: (executeSql: SqlExecutor) => Promise<T>,
+  options?: TransactionOptions,
+) => Promise<T>
+
 export type BlockExecutorInput = {
   event: H3Event
   block: Block
   inputs: Record<string, unknown>
   executeSql: SqlExecutor
   databaseType?: DatabaseType
+  /** Available for datasource-backed blocks; all statements use one connection. */
+  withTransaction?: TransactionRunner
 }
 
 export type BlockExecutor = (input: BlockExecutorInput) => Promise<Record<string, unknown>>
@@ -247,6 +260,7 @@ export type BlockDefinition = {
 export type OrchestrationHandlerOptions = {
   loadApiJson?: (apiJsonUuid: string) => Promise<unknown>
   executeSql?: DatasourceSqlExecutor
+  executeTransaction?: DatasourceTransactionRunner
   blockDefinitions?: Readonly<Record<string, BlockDefinition>>
 }
 

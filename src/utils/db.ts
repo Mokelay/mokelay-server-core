@@ -34,6 +34,31 @@ export type SqlExecutionResult<T extends Record<string, unknown> = Record<string
   insertId?: number | string | bigint
 }
 
+export type TransactionIsolationLevel = 'read committed' | 'repeatable read' | 'serializable'
+
+export type TransactionOptions = {
+  isolationLevel?: TransactionIsolationLevel
+  /** Number of retries after the first attempt for serialization/deadlock failures. */
+  retries?: number
+}
+
+export type TransactionSqlExecutor = <T extends Record<string, unknown> = Record<string, unknown>>(
+  query: SQL,
+) => Promise<SqlExecutionResult<T>>
+
+export type TransactionRunner = <T>(
+  callback: (executeSql: TransactionSqlExecutor) => Promise<T>,
+  options?: TransactionOptions,
+) => Promise<T>
+
+const defaultTransactionRetries = 2
+const maxTransactionRetries = 10
+
+export function normalizeTransactionRetries(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return defaultTransactionRetries
+  return Math.min(maxTransactionRetries, Math.max(0, Math.trunc(value)))
+}
+
 const globalForDb = globalThis as typeof globalThis & {
   __mokelayPostgresClient?: postgres.Sql
   __mokelayDb?: PostgresDatabase
@@ -238,6 +263,23 @@ export function useDatasourceConnection(datasource: string) {
   return connection
 }
 
+/**
+ * Closes and evicts a cached datasource connection, if one was opened.
+ * This is primarily useful for finite-lived CLI commands and test runners.
+ */
+export async function closeDatasourceConnection(datasource: string) {
+  const { envName, databaseUrl } = datasourceDatabaseUrl(datasource)
+  const cacheKey = `${envName}:${databaseUrl}`
+  const connections = datasourceConnections()
+  const connection = connections.get(cacheKey)
+
+  if (!connection) return false
+
+  connections.delete(cacheKey)
+  await connection.client.end()
+  return true
+}
+
 export function useDatasourceDb(datasource: string) {
   return useDatasourceConnection(datasource).db
 }
@@ -279,5 +321,128 @@ export async function executeDatasourceSql<T extends Record<string, unknown> = R
     rows: [],
     affectedRows: isResultSetHeader(result) ? result.affectedRows : undefined,
     insertId: isResultSetHeader(result) ? result.insertId : undefined,
+  }
+}
+
+function normalizeIsolationLevel(value: TransactionIsolationLevel | undefined) {
+  return (value ?? 'serializable').toUpperCase()
+}
+
+function transactionErrorCode(error: unknown) {
+  if (typeof error !== 'object' || error === null) return undefined
+  const record = error as Record<string, unknown>
+  const code = record.code ?? record.sqlState ?? record.sqlstate
+  return typeof code === 'string' || typeof code === 'number' ? String(code) : undefined
+}
+
+function isRetryableTransactionError(error: unknown) {
+  let current = error
+  const seen = new Set<object>()
+
+  while (typeof current === 'object' && current !== null && !seen.has(current)) {
+    seen.add(current)
+    const code = transactionErrorCode(current)
+    if (
+      code === '40001'
+      || code === '40P01'
+      || code === '1213'
+      || code === '1205'
+      || code === 'ER_LOCK_DEADLOCK'
+      || code === 'ER_LOCK_WAIT_TIMEOUT'
+    ) return true
+    current = 'cause' in current ? current.cause : undefined
+  }
+
+  // PostgreSQL serialization_failure/deadlock_detected; MySQL ER_LOCK_DEADLOCK/
+  // ER_LOCK_WAIT_TIMEOUT and their SQLSTATE equivalents.
+  return false
+}
+
+async function executePostgresTransaction<T>(
+  connection: PostgresDatabaseConnection,
+  callback: (executeSql: TransactionSqlExecutor) => Promise<T>,
+  isolationLevel: string,
+) {
+  const result = await connection.client.begin(`ISOLATION LEVEL ${isolationLevel}` as never, async (transaction) => {
+    // postgres.js exposes a TransactionSql here. It is the same query interface
+    // Drizzle consumes, but Drizzle's public overload currently only names Sql.
+    const transactionDb = drizzlePostgres(transaction as unknown as postgres.Sql)
+    const executeSql: TransactionSqlExecutor = async <Row extends Record<string, unknown>>(query: SQL) => {
+      const rows = await transactionDb.execute<Row>(query)
+      return {
+        databaseType: 'postgres',
+        rows: Array.from(rows) as Row[],
+      }
+    }
+
+    return await callback(executeSql)
+  })
+
+  return result as T
+}
+
+async function executeMysqlTransaction<T>(
+  connection: MysqlDatabaseConnection,
+  callback: (executeSql: TransactionSqlExecutor) => Promise<T>,
+  isolationLevel: string,
+) {
+  const client = await connection.client.getConnection()
+
+  try {
+    await client.query(`SET TRANSACTION ISOLATION LEVEL ${isolationLevel}`)
+    await client.beginTransaction()
+
+    const executeSql: TransactionSqlExecutor = async <Row extends Record<string, unknown>>(query: SQL) => {
+      const builtQuery = connection.dialect.sqlToQuery(query)
+      const [result] = await client.query(builtQuery.sql, builtQuery.params as any[])
+
+      if (Array.isArray(result)) {
+        return { databaseType: 'mysql', rows: result as Row[] }
+      }
+
+      return {
+        databaseType: 'mysql',
+        rows: [],
+        affectedRows: isResultSetHeader(result) ? result.affectedRows : undefined,
+        insertId: isResultSetHeader(result) ? result.insertId : undefined,
+      }
+    }
+
+    const value = await callback(executeSql)
+    await client.commit()
+    return value
+  } catch (error) {
+    try {
+      await client.rollback()
+    } catch {
+      // Preserve the transaction's original failure.
+    }
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Runs all SQL through a single physical datasource connection. Callers should
+ * still lock their own application-level serialization row inside the callback.
+ */
+export async function executeDatasourceTransaction<T>(
+  datasource: string,
+  callback: (executeSql: TransactionSqlExecutor) => Promise<T>,
+  options: TransactionOptions = {},
+): Promise<T> {
+  const connection = useDatasourceConnection(datasource)
+  const isolationLevel = normalizeIsolationLevel(options.isolationLevel)
+  const retries = normalizeTransactionRetries(options.retries)
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return connection.databaseType === 'postgres'
+        ? await executePostgresTransaction(connection, callback, isolationLevel)
+        : await executeMysqlTransaction(connection, callback, isolationLevel)
+    } catch (error) {
+      if (attempt >= retries || !isRetryableTransactionError(error)) throw error
+    }
   }
 }

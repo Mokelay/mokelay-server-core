@@ -21,6 +21,7 @@ import { controllerExecutors } from './controllers/index.js'
 import {
   datasourceDatabaseType,
   executeDatasourceSql,
+  executeDatasourceTransaction,
   normalizeDatasourceName,
 } from './db.js'
 import { mokelayError, toMokelayErrorResponse } from './mokelay-error.js'
@@ -35,6 +36,7 @@ import {
   type CalculateTemplate,
   type Controller,
   type DatasourceSqlExecutor,
+  type DatasourceTransactionRunner,
   type MokelayDebugBlockStep,
   type MokelayDebugControllerStep,
   type MokelayDebugError,
@@ -552,6 +554,7 @@ async function executeBlock(
   block: Block,
   context: BlockExecutionContext,
   executeSql: DatasourceSqlExecutor,
+  executeTransaction: DatasourceTransactionRunner,
   event: H3Event,
   definitions: Readonly<Record<string, BlockDefinition>>,
   debugStep?: MokelayDebugBlockStep,
@@ -589,7 +592,20 @@ async function executeBlock(
     return executeSql(query, datasource, requireDatabaseType(databaseType))
   }
 
-  const outputs = await definition.executor({ event, block, inputs, executeSql: executeBlockSql, databaseType })
+  const withTransaction: import('./db.js').TransactionRunner | undefined = datasource
+    ? async <T>(callback: (executeSql: SqlExecutor) => Promise<T>, transactionOptions?: import('./db.js').TransactionOptions) => (
+        await executeTransaction(datasource, callback, transactionOptions)
+      )
+    : undefined
+
+  const outputs = await definition.executor({
+    event,
+    block,
+    inputs,
+    executeSql: executeBlockSql,
+    databaseType,
+    withTransaction,
+  })
   context.blocks[block.uuid].outputs = outputs
 
   if (block.outputs) {
@@ -695,6 +711,7 @@ async function executeBlockGraph(
   blocks: OrchestrationBlock[],
   context: BlockExecutionContext,
   executeSql: DatasourceSqlExecutor,
+  executeTransaction: DatasourceTransactionRunner,
   event: H3Event,
   definitions: Readonly<Record<string, BlockDefinition>>,
   debug?: MokelayDebugResponse,
@@ -773,7 +790,7 @@ async function executeBlockGraph(
     }
 
     try {
-      await executeBlock(block, context, executeSql, event, definitions, debugStep)
+      await executeBlock(block, context, executeSql, executeTransaction, event, definitions, debugStep)
       terminalUuid = block.uuid
       nextBlockUuid = block.nextBlock
       appendDebugStep = debugStep
@@ -812,6 +829,16 @@ async function executeApiJsonWithDefinitions(
 
   const request = await readRequestContext(event, apiJson)
   const executeSql = options.executeSql ?? defaultExecuteSql
+  const executeTransaction: DatasourceTransactionRunner = options.executeTransaction
+    ?? (options.executeSql
+      ? async () => {
+          throw mokelayError(
+            'BLOCK_SQL_UNSUPPORTED',
+            '自定义 executeSql 必须同时注入 executeTransaction 才能执行事务 Block。',
+            500,
+          )
+        }
+      : executeDatasourceTransaction)
   const debug: MokelayDebugResponse | undefined = includeDebugResponse ? createDebugResponse() : undefined
 
   if (debug) {
@@ -827,7 +854,15 @@ async function executeApiJsonWithDefinitions(
     blocks: {},
   }
 
-  const terminalUuid = await executeBlockGraph(apiJson.blocks, context, executeSql, event, definitions, debug)
+  const terminalUuid = await executeBlockGraph(
+    apiJson.blocks,
+    context,
+    executeSql,
+    executeTransaction,
+    event,
+    definitions,
+    debug,
+  )
   const responseConfig = responseForTerminal(apiJson, terminalUuid)
 
   const data = responseConfig == null ? null : await resolveTemplates(responseConfig, context)

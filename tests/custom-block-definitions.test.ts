@@ -177,4 +177,41 @@ describe('custom block definitions', () => {
       }
     }
   })
+
+  it('does not emulate transactions when a custom SQL executor has no transaction runner', async () => {
+    const originalUrl = process.env.Custom_DATABASE_URL
+    process.env.Custom_DATABASE_URL = 'postgres://unit-test'
+    const executeSql = vi.fn(async () => ({ databaseType: 'postgres' as const, rows: [] }))
+    const transactionCallback = vi.fn(async () => undefined)
+
+    try {
+      const handler = createMokelayOrchestrationHandler({
+        loadApiJson: async () => apiJson('customDatabaseBlock', [], { datasource: 'Custom' }),
+        executeSql,
+        blockDefinitions: {
+          customDatabaseBlock: {
+            executor: async ({ withTransaction }) => {
+              await withTransaction!(transactionCallback)
+              return {}
+            },
+            allowedOutputs: [],
+            requiresDatasource: true,
+          },
+        },
+      })
+      const baseUrl = await startServer(handler)
+      const response = await fetch(`${baseUrl}/api/mokelay/custom_block_test`)
+
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'BLOCK_SQL_UNSUPPORTED' },
+      })
+      expect(transactionCallback).not.toHaveBeenCalled()
+      expect(executeSql).not.toHaveBeenCalled()
+    }
+    finally {
+      if (originalUrl === undefined) delete process.env.Custom_DATABASE_URL
+      else process.env.Custom_DATABASE_URL = originalUrl
+    }
+  })
 })
