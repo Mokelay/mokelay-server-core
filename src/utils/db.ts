@@ -363,10 +363,7 @@ async function executePostgresTransaction<T>(
   callback: (executeSql: TransactionSqlExecutor) => Promise<T>,
   isolationLevel: string,
 ) {
-  const result = await connection.client.begin(`ISOLATION LEVEL ${isolationLevel}` as never, async (transaction) => {
-    // postgres.js exposes a TransactionSql here. It is the same query interface
-    // Drizzle consumes, but Drizzle's public overload currently only names Sql.
-    const transactionDb = drizzlePostgres(transaction as unknown as postgres.Sql)
+  return await connection.db.transaction(async (transactionDb) => {
     const executeSql: TransactionSqlExecutor = async <Row extends Record<string, unknown>>(query: SQL) => {
       const rows = await transactionDb.execute<Row>(query)
       return {
@@ -376,9 +373,9 @@ async function executePostgresTransaction<T>(
     }
 
     return await callback(executeSql)
+  }, {
+    isolationLevel: isolationLevel.toLowerCase() as TransactionIsolationLevel,
   })
-
-  return result as T
 }
 
 async function executeMysqlTransaction<T>(
