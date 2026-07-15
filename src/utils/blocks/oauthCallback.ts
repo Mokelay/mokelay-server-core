@@ -21,6 +21,11 @@ function booleanInput(value: unknown, defaultValue: boolean) {
   return typeof value === 'boolean' ? value : defaultValue
 }
 
+const noRegistration = {
+  requiresRegistration: false,
+  registration: null,
+} as const
+
 /**
  * @serverBlockDoc
  * {
@@ -35,12 +40,15 @@ function booleanInput(value: unknown, defaultValue: boolean) {
  *     { "key": "code", "type": "string", "required": false, "description": "Provider callback code。" },
  *     { "key": "state", "type": "string", "required": false, "description": "Provider callback state。" },
  *     { "key": "error", "type": "string", "required": false, "description": "Provider callback error。" },
- *     { "key": "autoCreateEnterprise", "type": "boolean", "required": false, "defaultValue": true, "description": "首次登录时是否自动创建企业。" }
+ *     { "key": "autoCreateEnterprise", "type": "boolean", "required": false, "defaultValue": true, "description": "首次登录时是否自动创建企业。" },
+ *     { "key": "deferNewUserProvisioning", "type": "boolean", "required": false, "defaultValue": false, "description": "全新账号是否只返回注册数据，交由 Fragment 创建用户。" }
  *   ],
  *   "outputs": [
  *     { "key": "user", "type": "EmployeeSession|null", "description": "登录成功后的用户 session；失败时为 null。" },
  *     { "key": "isNewUser", "type": "boolean", "description": "是否新建了用户。" },
  *     { "key": "linkedIdentity", "type": "boolean", "description": "是否新绑定了第三方身份。" },
+ *     { "key": "requiresRegistration", "type": "boolean", "description": "是否需要调用注册 Fragment。" },
+ *     { "key": "registration", "type": "OAuthRegistration|null", "description": "Fragment 与身份绑定所需的新用户数据。" },
  *     { "key": "provider", "type": "string", "description": "标准化后的 provider。" },
  *     { "key": "redirectUrl", "type": "string", "description": "最终跳转地址。" },
  *     { "key": "errorCode", "type": "string|null", "description": "业务失败原因；成功时为 null。" }
@@ -75,6 +83,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
       user: null,
       isNewUser: false,
       linkedIdentity: false,
+      ...noRegistration,
       provider,
       redirectUrl: oauthLoginRedirectUrl('provider_denied'),
       errorCode: 'provider_denied',
@@ -89,6 +98,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
       user: null,
       isNewUser: false,
       linkedIdentity: false,
+      ...noRegistration,
       provider,
       redirectUrl: oauthLoginRedirectUrl('missing_code'),
       errorCode: 'missing_code',
@@ -104,6 +114,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
       user: null,
       isNewUser: false,
       linkedIdentity: false,
+      ...noRegistration,
       provider,
       redirectUrl: oauthLoginRedirectUrl('invalid_state'),
       errorCode: 'invalid_state',
@@ -115,6 +126,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
       user: null,
       isNewUser: false,
       linkedIdentity: false,
+      ...noRegistration,
       provider,
       redirectUrl: oauthLoginRedirectUrl('invalid_state', session),
       errorCode: 'invalid_state',
@@ -131,14 +143,19 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
       profile,
       booleanInput(inputs.autoCreateEnterprise, true),
       databaseType,
+      booleanInput(inputs.deferNewUserProvisioning, false),
     )
 
-    setSessionValue(event, 'user', result.user)
+    if (result.user) {
+      setSessionValue(event, 'user', result.user)
+    }
 
     return {
       user: result.user,
       isNewUser: result.isNewUser,
       linkedIdentity: result.linkedIdentity,
+      requiresRegistration: result.requiresRegistration,
+      registration: result.registration,
       provider,
       redirectUrl: oauthFinalRedirectUrl(session),
       errorCode: null,
@@ -158,6 +175,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
         user: null,
         isNewUser: false,
         linkedIdentity: false,
+        ...noRegistration,
         provider,
         redirectUrl: oauthLoginRedirectUrl('email_unverified', session),
         errorCode: 'email_unverified',
@@ -169,6 +187,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
         user: null,
         isNewUser: false,
         linkedIdentity: false,
+        ...noRegistration,
         provider,
         redirectUrl: oauthLoginRedirectUrl('account_conflict', session),
         errorCode: 'account_conflict',
@@ -180,6 +199,7 @@ export const executeOAuthCallbackBlock: BlockExecutor = async ({ event, inputs, 
         user: null,
         isNewUser: false,
         linkedIdentity: false,
+        ...noRegistration,
         provider,
         redirectUrl: oauthLoginRedirectUrl('provider_failed', session),
         errorCode: 'provider_failed',

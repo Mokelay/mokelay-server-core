@@ -5,12 +5,14 @@ import { executeCountBlock } from './count.js'
 import { executeCreateBlock } from './create.js'
 import { executeCreateSchemaBlock } from './createSchema.js'
 import { executeDeleteBlock } from './delete.js'
+import { executeFragmentBlock } from './executeFragment.js'
 import { executeGithubCommitBlock } from './githubCommit.js'
 import { executeGitlabCommitBlock } from './gitlabCommit.js'
 import { gitCommitOutputKeys } from './gitShared.js'
 import { executeListApifoxApisBlock } from './listApifoxApis.js'
 import { executeListApifoxProjectsBlock } from './listApifoxProjects.js'
 import { executeListBlock } from './list.js'
+import { executeLinkOAuthIdentityBlock } from './linkOAuthIdentity.js'
 import { executeOpenAIBlock } from './openAI.js'
 import { executeOAuthAuthorizeUrlBlock } from './oauthAuthorizeUrl.js'
 import { executeOAuthCallbackBlock } from './oauthCallback.js'
@@ -34,6 +36,7 @@ export const blockDefinitions: Readonly<Record<string, BlockDefinition>> = {
   count: { executor: executeCountBlock, allowedOutputs: ['total'], requiresDatasource: true },
   read: { executor: executeReadBlock, allowedOutputs: ['data'], requiresDatasource: true },
   delete: { executor: executeDeleteBlock, allowedOutputs: ['affected'], requiresDatasource: true },
+  executeFragment: { executor: executeFragmentBlock, allowedOutputs: ['result'] },
   create: { executor: executeCreateBlock, allowedOutputs: ['uuid'], requiresDatasource: true },
   createSchema: { executor: executeCreateSchemaBlock, allowedOutputs: ['schema', 'created', 'exists'], requiresDatasource: true },
   upsert: { executor: executeUpsertBlock, allowedOutputs: ['uuid'], requiresDatasource: true },
@@ -54,7 +57,21 @@ export const blockDefinitions: Readonly<Record<string, BlockDefinition>> = {
   },
   oauthCallback: {
     executor: executeOAuthCallbackBlock,
-    allowedOutputs: ['user', 'isNewUser', 'linkedIdentity', 'provider', 'redirectUrl', 'errorCode'],
+    allowedOutputs: [
+      'user',
+      'isNewUser',
+      'linkedIdentity',
+      'requiresRegistration',
+      'registration',
+      'provider',
+      'redirectUrl',
+      'errorCode',
+    ],
+    requiresDatasource: true,
+  },
+  linkOAuthIdentity: {
+    executor: executeLinkOAuthIdentityBlock,
+    allowedOutputs: ['user', 'linkedIdentity'],
     requiresDatasource: true,
   },
   openAI: { executor: executeOpenAIBlock, allowedOutputs: ['result'] },

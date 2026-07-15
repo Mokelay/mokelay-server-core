@@ -29,6 +29,7 @@ import {
   assertApiJsonUuid,
   calculateTemplateSchema,
   parseApiJson,
+  type ApiJsonSource,
   type ApiJson,
   type Block,
   type BlockDefinition,
@@ -37,6 +38,9 @@ import {
   type Controller,
   type DatasourceSqlExecutor,
   type DatasourceTransactionRunner,
+  type EndpointApiJson,
+  type FragmentApiJson,
+  type FragmentInvocation,
   type MokelayDebugBlockStep,
   type MokelayDebugControllerStep,
   type MokelayDebugError,
@@ -52,11 +56,15 @@ import {
   type RequestContext,
   type SqlExecutor,
   type StarterBlock,
+  isFragmentApiJson,
 } from './orchestration-schema.js'
 import { processorExecutors } from './processors/index.js'
 import { loadApiJsonFromR2 } from './r2-api-json.js'
 
-export type { OrchestrationCondition as Condition } from './orchestration-schema.js'
+export type {
+  ApiJsonSource,
+  OrchestrationCondition as Condition,
+} from './orchestration-schema.js'
 
 const templatePattern = /\{\{\s*([^}]+?)\s*\}\}/g
 const wholeTemplatePattern = /^\s*\{\{\s*([^}]+?)\s*\}\}\s*$/
@@ -127,30 +135,50 @@ function formatSqlTimestamp(date: Date) {
   return date.toISOString().replace('T', ' ').replace('Z', '+00:00')
 }
 
-async function loadApiJsonFromNitroAssets(apiJsonUuid: string) {
+type SystemApiAssetDirectory = '' | 'fragment'
+
+function systemApiAssetPath(apiJsonUuid: string, directory: SystemApiAssetDirectory) {
+  return directory
+    ? `mokelay-apis/${directory}/${apiJsonUuid}.json`
+    : `mokelay-apis/${apiJsonUuid}.json`
+}
+
+async function loadApiJsonFromNitroAssets(
+  apiJsonUuid: string,
+  directory: SystemApiAssetDirectory = '',
+) {
+  let runtime: {
+    useStorage?: (base: string) => {
+      getItem: (key: string) => Promise<unknown>
+    }
+  }
+
   try {
-    const runtime = await import('nitropack/runtime') as unknown as {
-      useStorage?: (base: string) => {
-        getItem: (key: string) => Promise<unknown>
-      }
-    }
-
-    if (!runtime.useStorage) {
-      return undefined
-    }
-
-    const { useStorage } = runtime
-    const value = await useStorage('assets:server').getItem(`mokelay-apis/${apiJsonUuid}.json`)
-
-    return value ?? undefined
+    runtime = await import('nitropack/runtime') as unknown as typeof runtime
   } catch {
     return undefined
   }
+
+  if (!runtime.useStorage) {
+    return undefined
+  }
+
+  // Nitro reports a missing key as null/undefined. Do not swallow storage
+  // failures here: falling through to R2/database after a system-asset outage
+  // could execute a user API with the same UUID and cross ownership domains.
+  const value = await runtime.useStorage('assets:server').getItem(
+    systemApiAssetPath(apiJsonUuid, directory),
+  )
+
+  return value ?? undefined
 }
 
-async function loadApiJsonFromFileSystem(apiJsonUuid: string) {
+async function loadApiJsonFromFileSystem(
+  apiJsonUuid: string,
+  directory: SystemApiAssetDirectory = '',
+) {
   const apiJsonDir = resolve(process.cwd(), 'server/assets/mokelay-apis')
-  const filePath = resolve(apiJsonDir, `${apiJsonUuid}.json`)
+  const filePath = resolve(apiJsonDir, directory, `${apiJsonUuid}.json`)
 
   if (!filePath.startsWith(`${apiJsonDir}${sep}`)) {
     throw mokelayError('API_JSON_UUID_INVALID', 'API_JSON_UUID 无效。', 400)
@@ -185,60 +213,240 @@ async function defaultExecuteSql<T extends Record<string, unknown> = Record<stri
   return await executeDatasourceSql<T>(query, datasource)
 }
 
-async function loadApiJsonFromDatabase(apiJsonUuid: string, executeSql: DatasourceSqlExecutor) {
+function hasMokelayDatabaseConfiguration() {
+  return [
+    'Mokelay_DATABASE_URL',
+    'Mokelay_Type',
+    'Mokelay_Host',
+    'Mokelay_Port',
+    'Mokelay_Schema',
+    'Mokelay_User',
+    'Mokelay_Password',
+  ].some((key) => Object.prototype.hasOwnProperty.call(process.env, key))
+}
+
+type ApiJsonDatabaseLookup = {
+  found: false
+} | {
+  found: true
+  value: unknown
+  fragment: boolean
+  status: unknown
+}
+
+function databaseBoolean(value: unknown) {
+  return value === true || value === 1 || value === '1'
+}
+
+async function loadApiJsonDatabaseRecord(
+  apiJsonUuid: string,
+  executeSql: DatasourceSqlExecutor,
+): Promise<ApiJsonDatabaseLookup> {
+  if (!hasMokelayDatabaseConfiguration()) {
+    return { found: false }
+  }
+
   try {
     const table = identifierSql('apis', 'table', 'BLOCK_INVALID_TABLE')
     const apiJsonField = identifierSql('api_json', 'fields', 'BLOCK_INVALID_FIELDS')
+    const fragmentField = identifierSql('fragment', 'fields', 'BLOCK_INVALID_FIELDS')
     const uuidField = identifierSql('uuid', 'fields', 'BLOCK_INVALID_FIELDS')
     const statusField = identifierSql('status', 'fields', 'BLOCK_INVALID_FIELDS')
     const databaseType = datasourceDatabaseType('Mokelay')
-    const result = await executeSql<{ api_json: unknown }>(
-      sql`SELECT ${apiJsonField} FROM ${table} WHERE ${uuidField} = ${apiJsonUuid} AND ${statusField} = ${'published'} LIMIT 1`,
+    const result = await executeSql<{ api_json: unknown, fragment: unknown, status: unknown }>(
+      sql`SELECT ${apiJsonField}, ${fragmentField}, ${statusField} FROM ${table} WHERE ${uuidField} = ${apiJsonUuid} LIMIT 1`,
       'Mokelay',
       databaseType,
     )
+    const row = result.rows[0]
 
-    return result.rows[0]?.api_json
+    return row
+      ? {
+          found: true,
+          value: row.api_json,
+          fragment: databaseBoolean(row.fragment),
+          status: row.status,
+        }
+      : { found: false }
   } catch (error) {
     const data = typeof error === 'object' && error && 'data' in error ? error.data : undefined
     const code = isRecord(data) ? data.code : undefined
 
     if (code === 'BLOCK_DATASOURCE_URL_MISSING') {
-      return undefined
+      return { found: false }
     }
 
     throw error
   }
 }
 
-export async function loadApiJson(apiJsonUuid: string, executeSql: DatasourceSqlExecutor = defaultExecuteSql) {
+type FragmentDatabaseLookup = {
+  found: boolean
+  value?: unknown
+}
+
+async function loadPublishedFragmentFromDatabase(
+  apiJsonUuid: string,
+  executeSql: DatasourceSqlExecutor,
+): Promise<FragmentDatabaseLookup> {
+  const row = await loadApiJsonDatabaseRecord(apiJsonUuid, executeSql)
+
+  if (!row.found) {
+    return { found: false }
+  }
+
+  if (!row.fragment) {
+    throw mokelayError('FRAGMENT_TARGET_INVALID', `${apiJsonUuid} 不是 Fragment。`, 400)
+  }
+
+  if (row.status !== 'published') {
+    throw mokelayError('FRAGMENT_TARGET_INVALID', `Fragment ${apiJsonUuid} 尚未发布。`, 409)
+  }
+
+  return { found: true, value: row.value }
+}
+
+export type LoadedApiJson = {
+  apiJson: unknown
+  source: ApiJsonSource
+}
+
+/**
+ * Loads a top-level HTTP API and reports the ownership domain used for all
+ * Fragment references made by that API. Root server/Nitro assets are system
+ * APIs; R2 and database records are user APIs.
+ */
+export async function loadApiJsonWithSource(
+  apiJsonUuid: string,
+  executeSql: DatasourceSqlExecutor = defaultExecuteSql,
+): Promise<LoadedApiJson> {
   assertApiJsonUuid(apiJsonUuid)
 
   const localFileValue = await loadApiJsonFromFileSystem(apiJsonUuid)
 
   if (localFileValue !== undefined) {
-    return parseLoadedApiJson(apiJsonUuid, localFileValue)
+    return {
+      apiJson: parseLoadedApiJson(apiJsonUuid, localFileValue),
+      source: 'system',
+    }
   }
 
   const nitroAssetsValue = await loadApiJsonFromNitroAssets(apiJsonUuid)
 
   if (nitroAssetsValue !== undefined) {
-    return parseLoadedApiJson(apiJsonUuid, nitroAssetsValue)
+    return {
+      apiJson: parseLoadedApiJson(apiJsonUuid, nitroAssetsValue),
+      source: 'system',
+    }
   }
 
-  const r2Value = await loadApiJsonFromR2(apiJsonUuid)
+  const databaseConfigured = hasMokelayDatabaseConfiguration()
+  const [r2Lookup, databaseLookup] = await Promise.allSettled([
+    loadApiJsonFromR2(apiJsonUuid),
+    loadApiJsonDatabaseRecord(apiJsonUuid, executeSql),
+  ])
+  const databaseRecord = databaseLookup.status === 'fulfilled' ? databaseLookup.value : undefined
+
+  // A current Fragment record always wins over an old endpoint object in R2.
+  // Without this preflight, deleting an endpoint and reusing its UUID for a
+  // Fragment could leave the old HTTP endpoint executable indefinitely.
+  if (databaseRecord?.found && databaseRecord.fragment) {
+    throw mokelayError(
+      'FRAGMENT_DIRECT_EXECUTION_FORBIDDEN',
+      `Fragment ${apiJsonUuid} 不能通过 HTTP 独立执行。`,
+      400,
+    )
+  }
+
+  // If a configured database cannot answer the kind preflight, fail closed:
+  // serving R2 here could execute an old endpoint after its UUID became a Fragment.
+  if (databaseLookup.status === 'rejected') {
+    throw databaseLookup.reason
+  }
+
+  // In a database-backed deployment, an R2 object without a current metadata
+  // row is stale (for example after deletion) and must not resurrect the API.
+  if (databaseConfigured && databaseRecord && !databaseRecord.found) {
+    throw mokelayError('API_JSON_NOT_FOUND', 'API JSON 不存在。', 404)
+  }
+
+  const r2Value = r2Lookup.status === 'fulfilled' ? r2Lookup.value : undefined
 
   if (r2Value !== undefined) {
-    return parseLoadedApiJson(apiJsonUuid, r2Value)
+    return {
+      apiJson: parseLoadedApiJson(apiJsonUuid, r2Value),
+      source: 'user',
+    }
   }
 
-  const databaseValue = await loadApiJsonFromDatabase(apiJsonUuid, executeSql)
-
-  if (databaseValue !== undefined) {
-    return databaseValue
+  if (databaseRecord?.found && databaseRecord.status === 'published') {
+    return {
+      apiJson: parseLoadedApiJson(apiJsonUuid, databaseRecord.value),
+      source: 'user',
+    }
   }
 
   throw mokelayError('API_JSON_NOT_FOUND', 'API JSON 不存在。', 404)
+}
+
+/**
+ * Backward-compatible raw top-level API loader. Use loadApiJsonWithSource when
+ * the caller will execute the API and therefore needs Fragment source routing.
+ */
+export async function loadApiJson(
+  apiJsonUuid: string,
+  executeSql: DatasourceSqlExecutor = defaultExecuteSql,
+) {
+  return (await loadApiJsonWithSource(apiJsonUuid, executeSql)).apiJson
+}
+
+/**
+ * Loads a Fragment owned by a built-in API. System Fragments live only below
+ * server/assets/mokelay-apis/fragment (or the equivalent Nitro asset path).
+ */
+export async function loadSystemFragmentApiJson(apiJsonUuid: string) {
+  assertApiJsonUuid(apiJsonUuid)
+
+  const localFileValue = await loadApiJsonFromFileSystem(apiJsonUuid, 'fragment')
+
+  if (localFileValue !== undefined) {
+    return parseLoadedApiJson(apiJsonUuid, localFileValue)
+  }
+
+  const nitroAssetsValue = await loadApiJsonFromNitroAssets(apiJsonUuid, 'fragment')
+
+  if (nitroAssetsValue !== undefined) {
+    return parseLoadedApiJson(apiJsonUuid, nitroAssetsValue)
+  }
+
+  throw mokelayError('API_JSON_NOT_FOUND', `内置 Fragment ${apiJsonUuid} 不存在。`, 404)
+}
+
+/**
+ * Loads a Fragment owned by a user API from the authoritative published
+ * database record. System assets and R2 are deliberately excluded.
+ */
+export async function loadUserFragmentApiJson(
+  apiJsonUuid: string,
+  executeSql: DatasourceSqlExecutor = defaultExecuteSql,
+) {
+  assertApiJsonUuid(apiJsonUuid)
+
+  const databaseLookup = await loadPublishedFragmentFromDatabase(apiJsonUuid, executeSql)
+
+  if (databaseLookup.found) {
+    return parseLoadedApiJson(apiJsonUuid, databaseLookup.value)
+  }
+
+  throw mokelayError('API_JSON_NOT_FOUND', `Fragment ${apiJsonUuid} 不存在。`, 404)
+}
+
+/** @deprecated Prefer loadUserFragmentApiJson for explicit source ownership. */
+export async function loadFragmentApiJson(
+  apiJsonUuid: string,
+  executeSql: DatasourceSqlExecutor = defaultExecuteSql,
+) {
+  return await loadUserFragmentApiJson(apiJsonUuid, executeSql)
 }
 
 function declarationKey(declaration: ProcessableKey) {
@@ -463,7 +671,7 @@ function requireDeclaredValue(source: Record<string, unknown>, name: string, sou
   return source[name]
 }
 
-async function readRequestContext(event: H3Event, apiJson: ApiJson): Promise<RequestContext> {
+async function readRequestContext(event: H3Event, apiJson: EndpointApiJson): Promise<RequestContext> {
   const shouldReadBody = getMethod(event) !== 'GET'
   const headers = getRequestHeaders(event)
   const headerContext: Record<string, unknown> = {}
@@ -519,6 +727,50 @@ async function readRequestContext(event: H3Event, apiJson: ApiJson): Promise<Req
   }
 }
 
+function requireFragmentParam(params: Record<string, unknown>, name: string) {
+  if (!(name in params) || params[name] === undefined || params[name] === null || params[name] === '') {
+    throw mokelayError('FRAGMENT_PARAMETER_MISSING', `缺少 Fragment 参数：${name}`, 400)
+  }
+
+  return params[name]
+}
+
+async function processFragmentParams(
+  fragment: FragmentApiJson,
+  rawParams: Record<string, unknown>,
+  now: string,
+) {
+  const declaredNames = new Set(fragment.params.map((declaration) => declarationKey(declaration)))
+
+  for (const name of Object.keys(rawParams)) {
+    if (!declaredNames.has(name)) {
+      throw mokelayError('FRAGMENT_PARAMETER_UNDECLARED', `Fragment 未声明参数：${name}`, 400)
+    }
+  }
+
+  const context: BlockExecutionContext = {
+    params: { ...rawParams },
+    now,
+    blocks: {},
+  }
+
+  for (const declaration of fragment.params) {
+    const name = declarationKey(declaration)
+    const value = typeof declaration === 'string'
+      ? requireFragmentParam(rawParams, name)
+      : await applyProcessors(
+          rawParams[name],
+          declarationProcessors(declaration),
+          `params.${name}`,
+          context,
+        )
+
+    context.params[name] = value
+  }
+
+  return context.params
+}
+
 function resolveBlockDefinitions(customDefinitions: OrchestrationHandlerOptions['blockDefinitions']) {
   if (!customDefinitions) {
     return builtInBlockDefinitions
@@ -550,6 +802,11 @@ function validateDeclaredOutputs(block: Block, definition: BlockDefinition) {
   }
 }
 
+type InternalFragmentInvoker = (
+  input: FragmentInvocation,
+  debugStep?: MokelayDebugBlockStep,
+) => Promise<Record<string, unknown>>
+
 async function executeBlock(
   block: Block,
   context: BlockExecutionContext,
@@ -557,6 +814,7 @@ async function executeBlock(
   executeTransaction: DatasourceTransactionRunner,
   event: H3Event,
   definitions: Readonly<Record<string, BlockDefinition>>,
+  invokeFragment: InternalFragmentInvoker,
   debugStep?: MokelayDebugBlockStep,
 ) {
   const definition = Object.prototype.hasOwnProperty.call(definitions, block.functionName)
@@ -605,6 +863,15 @@ async function executeBlock(
     executeSql: executeBlockSql,
     databaseType,
     withTransaction,
+    invokeFragment: block.functionName === 'executeFragment'
+      ? async (input) => await invokeFragment(input, debugStep)
+      : async () => {
+          throw mokelayError(
+            'FRAGMENT_TARGET_INVALID',
+            'Fragment 只能通过 executeFragment Block 调用。',
+            400,
+          )
+        },
   })
   context.blocks[block.uuid].outputs = outputs
 
@@ -714,6 +981,7 @@ async function executeBlockGraph(
   executeTransaction: DatasourceTransactionRunner,
   event: H3Event,
   definitions: Readonly<Record<string, BlockDefinition>>,
+  invokeFragment: InternalFragmentInvoker,
   debug?: MokelayDebugResponse,
 ) {
   const { starterNextBlock, blockMap } = buildBlockMap(blocks)
@@ -790,7 +1058,16 @@ async function executeBlockGraph(
     }
 
     try {
-      await executeBlock(block, context, executeSql, executeTransaction, event, definitions, debugStep)
+      await executeBlock(
+        block,
+        context,
+        executeSql,
+        executeTransaction,
+        event,
+        definitions,
+        invokeFragment,
+        debugStep,
+      )
       terminalUuid = block.uuid
       nextBlockUuid = block.nextBlock
       appendDebugStep = debugStep
@@ -804,6 +1081,17 @@ async function executeBlockGraph(
         debugStep.nextBlock = null
       }
 
+      if (block.errorNextBlock !== undefined) {
+        terminalUuid = block.uuid
+        nextBlockUuid = block.errorNextBlock ?? null
+        appendDebugStep = debugStep
+          ? (step) => {
+              debugStep.nextBlock = step
+            }
+          : undefined
+        continue
+      }
+
       throw error
     }
   }
@@ -811,16 +1099,104 @@ async function executeBlockGraph(
   return terminalUuid
 }
 
+type ApiJsonExecutionSource = ApiJsonSource | 'custom'
+
+async function loadReferencedApiJson(
+  apiJsonUuid: string,
+  options: OrchestrationHandlerOptions,
+  source: ApiJsonExecutionSource,
+) {
+  if (source === 'custom') {
+    if (!options.loadApiJson) {
+      throw mokelayError('FRAGMENT_TARGET_INVALID', '自定义 API loader 不可用。', 500)
+    }
+
+    return await options.loadApiJson(apiJsonUuid)
+  }
+
+  return source === 'system'
+    ? await loadSystemFragmentApiJson(apiJsonUuid)
+    : await loadUserFragmentApiJson(apiJsonUuid, options.executeSql)
+}
+
+async function executeFragmentInvocation(
+  invocation: FragmentInvocation,
+  event: H3Event,
+  options: OrchestrationHandlerOptions,
+  definitions: Readonly<Record<string, BlockDefinition>>,
+  executeSql: DatasourceSqlExecutor,
+  executeTransaction: DatasourceTransactionRunner,
+  now: string,
+  source: ApiJsonExecutionSource,
+  parentDebugStep?: MokelayDebugBlockStep,
+) {
+  const fragmentUuid = assertApiJsonUuid(invocation.fragmentUuid)
+  const debug = parentDebugStep ? createDebugResponse() : undefined
+
+  if (parentDebugStep && debug) {
+    parentDebugStep.fragment = debug
+  }
+
+  const rawFragment = await loadReferencedApiJson(fragmentUuid, options, source)
+  const fragment = parseApiJson(fragmentUuid, rawFragment)
+
+  if (!isFragmentApiJson(fragment)) {
+    throw mokelayError('FRAGMENT_TARGET_INVALID', `${fragmentUuid} 不是 Fragment。`, 400)
+  }
+
+  const params = await processFragmentParams(fragment, invocation.params, now)
+  const context: BlockExecutionContext = {
+    params,
+    now,
+    blocks: {},
+  }
+  const rejectNestedFragment: InternalFragmentInvoker = async () => {
+    throw mokelayError(
+      'FRAGMENT_NESTING_FORBIDDEN',
+      `Fragment ${fragmentUuid} 不允许调用 Fragment。`,
+      400,
+    )
+  }
+  const terminalUuid = await executeBlockGraph(
+    fragment.blocks,
+    context,
+    executeSql,
+    executeTransaction,
+    event,
+    definitions,
+    rejectNestedFragment,
+    debug,
+  )
+  const responseConfig = responseForTerminal(fragment, terminalUuid)
+  const result = responseConfig == null ? null : await resolveTemplates(responseConfig, context)
+
+  if (!isRecord(result) || Object.keys(result).length === 0) {
+    throw mokelayError('API_JSON_INVALID_RESPONSE', `Fragment ${fragmentUuid} 的 result 必须是对象。`, 400)
+  }
+
+  return result
+}
+
 async function executeApiJsonWithDefinitions(
   event: H3Event,
   rawApiJson: unknown,
   options: OrchestrationHandlerOptions,
   definitions: Readonly<Record<string, BlockDefinition>>,
+  source: ApiJsonExecutionSource,
 ) {
   const apiJsonUuid = assertApiJsonUuid(getRouterParam(event, 'apiJsonUuid'))
   const includeDebugResponse = shouldIncludeDebug(event)
 
   const apiJson = parseApiJson(apiJsonUuid, rawApiJson)
+
+  if (isFragmentApiJson(apiJson)) {
+    throw mokelayError(
+      'FRAGMENT_DIRECT_EXECUTION_FORBIDDEN',
+      `Fragment ${apiJsonUuid} 不能通过 HTTP 独立执行。`,
+      400,
+    )
+  }
+
   const actualMethod = getMethod(event).toUpperCase()
 
   if (apiJson.method !== actualMethod) {
@@ -845,14 +1221,27 @@ async function executeApiJsonWithDefinitions(
     setDebugResponse(event, debug)
   }
 
+  const now = formatSqlTimestamp(new Date())
   const context: BlockExecutionContext = {
     request,
     header: request.header,
     query: request.query,
     body: request.body,
-    now: formatSqlTimestamp(new Date()),
+    now,
     blocks: {},
   }
+
+  const invokeFragment: InternalFragmentInvoker = async (invocation, debugStep) => await executeFragmentInvocation(
+    invocation,
+    event,
+    options,
+    definitions,
+    executeSql,
+    executeTransaction,
+    now,
+    source,
+    debugStep,
+  )
 
   const terminalUuid = await executeBlockGraph(
     apiJson.blocks,
@@ -861,6 +1250,7 @@ async function executeApiJsonWithDefinitions(
     executeTransaction,
     event,
     definitions,
+    invokeFragment,
     debug,
   )
   const responseConfig = responseForTerminal(apiJson, terminalUuid)
@@ -893,7 +1283,13 @@ async function executeApiJsonWithDefinitions(
 }
 
 export async function executeApiJson(event: H3Event, rawApiJson: unknown, options: OrchestrationHandlerOptions = {}) {
-  return await executeApiJsonWithDefinitions(event, rawApiJson, options, resolveBlockDefinitions(options.blockDefinitions))
+  return await executeApiJsonWithDefinitions(
+    event,
+    rawApiJson,
+    options,
+    resolveBlockDefinitions(options.blockDefinitions),
+    options.apiJsonSource ?? (options.loadApiJson ? 'custom' : 'user'),
+  )
 }
 
 export function createMokelayOrchestrationHandler(options: OrchestrationHandlerOptions = {}): EventHandler {
@@ -902,11 +1298,14 @@ export function createMokelayOrchestrationHandler(options: OrchestrationHandlerO
   return defineEventHandler(async (event) => {
     try {
       const apiJsonUuid = assertApiJsonUuid(getRouterParam(event, 'apiJsonUuid'))
-      const rawApiJson = options.loadApiJson
-        ? await options.loadApiJson(apiJsonUuid)
-        : await loadApiJson(apiJsonUuid, options.executeSql)
+      const loaded = options.loadApiJson
+        ? {
+            apiJson: await options.loadApiJson(apiJsonUuid),
+            source: 'custom' as const,
+          }
+        : await loadApiJsonWithSource(apiJsonUuid, options.executeSql)
 
-      return await executeApiJsonWithDefinitions(event, rawApiJson, options, definitions)
+      return await executeApiJsonWithDefinitions(event, loaded.apiJson, options, definitions, loaded.source)
     } catch (error) {
       setResponseStatus(event, 200)
       return includeDebug(toMokelayErrorResponse(error), getDebugResponse(event))

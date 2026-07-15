@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file.
 ### Added
 - `blocks/openAI`: 新增通用 OpenAI Responses API Block，支持文本、JSON 值和 multipart 图片输入，并将 JSON object 结果解析到 `outputs.result`。
 - `string_array_check` processor：校验请求值是只包含字符串的数组。
+- Fragment DSL：支持通过 `fragment: true` 与 `params` 声明不可独立执行的复用编排，并以隔离上下文运行。
+- `blocks/executeFragment`：按字面量 UUID 调用已发布 Fragment，并通过固定的 `result` 输出返回结果。
+- `blocks/linkOAuthIdentity`：把延迟注册流程创建的 employee 与 OAuth 身份幂等绑定。
+
+### Changed
+- `blocks/oauthCallback`：新增向后兼容的 `deferNewUserProvisioning` 模式，为全新用户返回 `requiresRegistration` 与 `registration`，由注册 Fragment 完成账号创建。
+- Fragment 按调用方来源严格隔离：内置 API 只能加载 `mokelay-apis/fragment/` 内置 Fragment，用户 API 只能加载数据库中的已发布 Fragment，双方不回退或跨域引用；调用能力仅开放给内置 `executeFragment` Block。
+- 普通 Block 新增可选 `errorNextBlock` 错误边，可将 Block/Fragment 调用失败路由到其他 Block 或当前终点响应。
+- HTTP API 加载 R2 对象前会校验数据库中的当前 DSL 类型，防止历史端点对象绕过 Fragment 禁止独立执行规则；数据库类型预检失败时采用 fail-closed。
 
 ### Removed
 - 移除领域专用的 `analyzeDataSource` Block、`ai-data-source.ts` 工具层及相关公共导出；数据源识别规则改由 API JSON prompt 定义。

@@ -30,6 +30,12 @@ async function requestApi(rawApiJson: unknown, query = '') {
         executor: async ({ inputs }) => ({ value: inputs.value }),
         allowedOutputs: ['value'],
       },
+      failBlock: {
+        executor: async () => {
+          throw new Error('expected failure')
+        },
+        allowedOutputs: [],
+      },
     },
   })
   const baseUrl = await startServer(handler)
@@ -45,6 +51,12 @@ async function fetchApi(rawApiJson: unknown, query = '') {
       echoBlock: {
         executor: async ({ inputs }) => ({ value: inputs.value }),
         allowedOutputs: ['value'],
+      },
+      failBlock: {
+        executor: async () => {
+          throw new Error('expected failure')
+        },
+        allowedOutputs: [],
       },
     },
   })
@@ -199,5 +211,75 @@ describe('orchestration terminal responses', () => {
 
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe('true-output')
+  })
+
+  it('routes a Block failure through errorNextBlock and its terminal response', async () => {
+    const blocks = [
+      { uuid: 'starter', nextBlock: 'failing_block' },
+      {
+        uuid: 'failing_block',
+        functionName: 'failBlock',
+        inputs: {},
+        nextBlock: 'success_block',
+        errorNextBlock: null,
+      },
+      {
+        uuid: 'success_block',
+        functionName: 'echoBlock',
+        inputs: { value: 'success' },
+        outputs: ['value'],
+        nextBlock: null,
+      },
+    ]
+    const responses = {
+      failing_block: { branch: 'error' },
+      success_block: { branch: 'success' },
+    }
+
+    await expect(requestApi(apiJson({ blocks, responses }), '?__debug=1')).resolves.toMatchObject({
+      ok: true,
+      data: { branch: 'error' },
+      debug: {
+        nextBlock: {
+          uuid: 'failing_block',
+          error: { message: '服务器内部错误。' },
+          nextBlock: null,
+        },
+      },
+    })
+  })
+
+  it('supports a redirect response for an error terminal', async () => {
+    const response = await fetchApi(apiJson({
+      blocks: [
+        { uuid: 'starter', nextBlock: 'failing_block' },
+        {
+          uuid: 'failing_block',
+          functionName: 'failBlock',
+          inputs: {},
+          nextBlock: 'success_block',
+          errorNextBlock: null,
+        },
+        {
+          uuid: 'success_block',
+          functionName: 'echoBlock',
+          inputs: { value: 'success' },
+          outputs: ['value'],
+          nextBlock: null,
+        },
+      ],
+      responses: {
+        failing_block: {
+          redirect: {
+            statusCode: 302,
+            url: '/login?oauth_error=registration_failed',
+          },
+        },
+        success_block: { branch: 'success' },
+      },
+    }))
+
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe('/login?oauth_error=registration_failed')
   })
 })

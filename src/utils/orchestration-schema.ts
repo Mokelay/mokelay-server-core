@@ -87,6 +87,16 @@ export type Block = {
   inputs: Record<string, unknown>
   outputs?: ProcessableKey[] | null
   nextBlock: NextBlockUuid
+  errorNextBlock?: NextBlockUuid
+}
+
+export type ExecuteFragmentBlock = Block & {
+  functionName: 'executeFragment'
+  inputs: {
+    fragmentUuid: string
+    params: Record<string, unknown>
+  }
+  outputs: ['result']
 }
 
 export type StarterBlock = {
@@ -111,7 +121,7 @@ export type Controller = {
   nodes: ControllerNode[]
 }
 
-export type OrchestrationBlock = StarterBlock | Block | Controller
+export type OrchestrationBlock = StarterBlock | Block | ExecuteFragmentBlock | Controller
 export type ResponseConfig = Record<string, unknown> | null
 
 const nextBlockSchema = z.string().min(1, 'nextBlock 不能为空字符串。').nullable()
@@ -130,9 +140,30 @@ const standardBlockSchema: z.ZodType<Block, z.ZodTypeDef, unknown> = z.object({
   inputs: z.record(z.unknown()).optional().default({}),
   outputs: z.array(processableKeySchema).nullable().optional(),
   nextBlock: nextBlockSchema,
+  errorNextBlock: nextBlockSchema.optional(),
 }).strict().refine((value) => value.type !== 'controller', {
   message: 'Controller 必须配置 nodes。',
 }).refine((value) => value.uuid !== 'starter', {
+  message: 'starter 只能作为 Starter Block。',
+}).refine((value) => value.functionName !== 'executeFragment', {
+  message: 'executeFragment 必须使用固定的 inputs 与 outputs 配置。',
+})
+
+const executeFragmentBlockSchema: z.ZodType<ExecuteFragmentBlock, z.ZodTypeDef, unknown> = z.object({
+  uuid: z.string().min(1, 'Block UUID 不能为空。'),
+  alias: z.string().optional(),
+  functionName: z.literal('executeFragment'),
+  type: z.string().optional().refine((value) => value !== 'controller', {
+    message: 'ExecuteFragment 不能是 Controller。',
+  }),
+  inputs: z.object({
+    fragmentUuid: z.string().regex(apiJsonUuidPattern, 'fragmentUuid 必须是合法的字面量 UUID。'),
+    params: z.record(z.unknown()),
+  }).strict(),
+  outputs: z.tuple([z.literal('result')]),
+  nextBlock: nextBlockSchema,
+  errorNextBlock: nextBlockSchema.optional(),
+}).strict().refine((value) => value.uuid !== 'starter', {
   message: 'starter 只能作为 Starter Block。',
 })
 
@@ -151,25 +182,47 @@ export const controllerSchema: z.ZodType<Controller, z.ZodTypeDef, unknown> = z.
   type: z.literal('controller'),
   inputs: z.record(z.unknown()).optional().default({}),
   nodes: z.array(controllerNodeSchema).min(1, 'Controller nodes 不能为空。'),
-}).strict()
+}).strict().refine((value) => value.functionName !== 'executeFragment', {
+  message: 'executeFragment 不能配置为 Controller。',
+})
 
 export const blockSchema: z.ZodType<OrchestrationBlock, z.ZodTypeDef, unknown> = z.lazy(() => z.union([
   starterBlockSchema,
   controllerSchema,
+  executeFragmentBlockSchema,
   standardBlockSchema,
 ]))
 
-const apiJsonSchema = z.object({
+const commonApiJsonShape = {
   uuid: z.string().min(1, 'API JSON UUID 不能为空。'),
   alias: z.string().optional(),
-  method: z.string().min(1, 'method 不能为空。').transform((method) => method.toUpperCase()),
-  request: requestSchema.optional().default({ header: [], query: [], body: [] }),
   blocks: z.array(blockSchema).default([]),
   response: responseConfigSchema.optional(),
   responses: z.record(responseConfigSchema).optional(),
+}
+
+const endpointApiJsonSchema = z.object({
+  ...commonApiJsonShape,
+  fragment: z.literal(false).optional().default(false),
+  method: z.string().min(1, 'method 不能为空。').transform((method) => method.toUpperCase()),
+  request: requestSchema.optional().default({ header: [], query: [], body: [] }),
 }).strict()
 
-export type ApiJson = z.infer<typeof apiJsonSchema>
+const fragmentResponseConfigSchema = z.record(z.unknown())
+
+const fragmentApiJsonSchema = z.object({
+  ...commonApiJsonShape,
+  fragment: z.literal(true),
+  params: z.array(processableKeySchema).optional().default([]),
+  response: fragmentResponseConfigSchema.optional(),
+  responses: z.record(fragmentResponseConfigSchema).optional(),
+}).strict()
+
+const apiJsonSchema = z.union([fragmentApiJsonSchema, endpointApiJsonSchema])
+
+export type EndpointApiJson = z.infer<typeof endpointApiJsonSchema>
+export type FragmentApiJson = z.infer<typeof fragmentApiJsonSchema>
+export type ApiJson = EndpointApiJson | FragmentApiJson
 
 export type RequestContext = {
   header: Record<string, string>
@@ -177,17 +230,26 @@ export type RequestContext = {
   body: Record<string, unknown>
 }
 
-export type BlockExecutionContext = {
-  request: RequestContext
-  header: Record<string, string>
-  query: Record<string, unknown>
-  body: Record<string, unknown>
+type BaseBlockExecutionContext = {
   now: string
   blocks: Record<string, {
     inputs: Record<string, unknown>
     outputs: Record<string, unknown>
   }>
 }
+
+export type EndpointBlockExecutionContext = BaseBlockExecutionContext & {
+  request: RequestContext
+  header: Record<string, string>
+  query: Record<string, unknown>
+  body: Record<string, unknown>
+}
+
+export type FragmentBlockExecutionContext = BaseBlockExecutionContext & {
+  params: Record<string, unknown>
+}
+
+export type BlockExecutionContext = EndpointBlockExecutionContext | FragmentBlockExecutionContext
 
 export type MokelayDebugError = {
   code: string
@@ -201,6 +263,7 @@ export type MokelayDebugBlockStep = {
   outputs: Record<string, unknown>
   nextBlock: MokelayDebugStep | null
   error?: MokelayDebugError
+  fragment?: MokelayDebugResponse
 }
 
 export type MokelayDebugControllerNode = {
@@ -239,6 +302,13 @@ export type DatasourceTransactionRunner = <T>(
   options?: TransactionOptions,
 ) => Promise<T>
 
+export type FragmentInvocation = {
+  fragmentUuid: string
+  params: Record<string, unknown>
+}
+
+export type FragmentInvoker = (input: FragmentInvocation) => Promise<Record<string, unknown>>
+
 export type BlockExecutorInput = {
   event: H3Event
   block: Block
@@ -247,6 +317,8 @@ export type BlockExecutorInput = {
   databaseType?: DatabaseType
   /** Available for datasource-backed blocks; all statements use one connection. */
   withTransaction?: TransactionRunner
+  /** Reserved for the built-in executeFragment Block; other Blocks are rejected at runtime. */
+  invokeFragment: FragmentInvoker
 }
 
 export type BlockExecutor = (input: BlockExecutorInput) => Promise<Record<string, unknown>>
@@ -257,8 +329,15 @@ export type BlockDefinition = {
   requiresDatasource?: boolean
 }
 
+export type ApiJsonSource = 'system' | 'user'
+
 export type OrchestrationHandlerOptions = {
   loadApiJson?: (apiJsonUuid: string) => Promise<unknown>
+  /**
+   * Ownership domain for raw DSL passed directly to executeApiJson. The default
+   * handler detects this automatically and custom loaders remain self-contained.
+   */
+  apiJsonSource?: ApiJsonSource
   executeSql?: DatasourceSqlExecutor
   executeTransaction?: DatasourceTransactionRunner
   blockDefinitions?: Readonly<Record<string, BlockDefinition>>
@@ -294,10 +373,17 @@ export function parseApiJson(apiJsonUuid: string, value: unknown): ApiJson {
   }
 
   assertUniqueDslUuids(parsed.data)
+  assertUniqueDeclarations(parsed.data)
   assertApiJsonFlow(parsed.data)
   assertApiJsonResponses(parsed.data)
+  assertFragmentConfiguration(parsed.data)
+  assertFragmentTemplateScope(parsed.data)
 
   return parsed.data
+}
+
+export function isFragmentApiJson(apiJson: ApiJson): apiJson is FragmentApiJson {
+  return apiJson.fragment === true
 }
 
 function isControllerBlock(block: OrchestrationBlock): block is Controller {
@@ -328,6 +414,34 @@ function assertUniqueDslUuids(apiJson: ApiJson) {
   }
 }
 
+function assertUniqueDeclarations(apiJson: ApiJson) {
+  const declarationGroups = apiJson.fragment
+    ? [{ name: 'params', declarations: apiJson.params }]
+    : [
+        { name: 'request.header', declarations: apiJson.request.header },
+        { name: 'request.query', declarations: apiJson.request.query },
+        { name: 'request.body', declarations: apiJson.request.body },
+      ]
+
+  for (const group of declarationGroups) {
+    const seen = new Set<string>()
+
+    for (const declaration of group.declarations) {
+      const key = typeof declaration === 'string' ? declaration : declaration.key
+
+      if (seen.has(key)) {
+        throw mokelayError(
+          'API_JSON_INVALID_SCHEMA',
+          `${group.name} 中存在重复参数：${key}`,
+          400,
+        )
+      }
+
+      seen.add(key)
+    }
+  }
+}
+
 function assertApiJsonFlow(apiJson: ApiJson) {
   const starters = apiJson.blocks.filter((block): block is StarterBlock => block.uuid === 'starter')
 
@@ -352,21 +466,27 @@ function assertApiJsonFlow(apiJson: ApiJson) {
     }
   }
 
-  function validateNextBlock(sourceUuid: string, nextBlock: NextBlockUuid) {
+  function validateNextBlock(
+    sourceUuid: string,
+    nextBlock: NextBlockUuid,
+    edgeName: 'nextBlock' | 'errorNextBlock' = 'nextBlock',
+  ) {
+    const edgePath = `${sourceUuid}.${edgeName}`
+
     if (nextBlock === null) {
       return
     }
 
     if (nextBlock === 'starter') {
-      throw mokelayError('API_JSON_INVALID_FLOW', `${sourceUuid}.nextBlock 不能指向 starter。`, 400)
+      throw mokelayError('API_JSON_INVALID_FLOW', `${edgePath} 不能指向 starter。`, 400)
     }
 
     if (nodeUuids.has(nextBlock)) {
-      throw mokelayError('API_JSON_INVALID_FLOW', `${sourceUuid}.nextBlock 不能指向 Controller node：${nextBlock}`, 400)
+      throw mokelayError('API_JSON_INVALID_FLOW', `${edgePath} 不能指向 Controller node：${nextBlock}`, 400)
     }
 
     if (!executableBlockUuids.has(nextBlock)) {
-      throw mokelayError('API_JSON_INVALID_FLOW', `${sourceUuid}.nextBlock 指向不存在的 block：${nextBlock}`, 400)
+      throw mokelayError('API_JSON_INVALID_FLOW', `${edgePath} 指向不存在的 block：${nextBlock}`, 400)
     }
   }
 
@@ -380,6 +500,10 @@ function assertApiJsonFlow(apiJson: ApiJson) {
     }
 
     validateNextBlock(block.uuid, block.nextBlock)
+
+    if ('errorNextBlock' in block && block.errorNextBlock !== undefined) {
+      validateNextBlock(block.uuid, block.errorNextBlock, 'errorNextBlock')
+    }
   }
 }
 
@@ -401,7 +525,10 @@ function collectTerminalUuids(apiJson: ApiJson) {
       continue
     }
 
-    if (block.nextBlock === null) {
+    if (block.nextBlock === null || (
+      'errorNextBlock' in block
+      && block.errorNextBlock === null
+    )) {
       terminalUuids.add(block.uuid)
     }
   }
@@ -439,5 +566,142 @@ function assertApiJsonResponses(apiJson: ApiJson) {
         400,
       )
     }
+  }
+}
+
+function responseKeys(response: Record<string, unknown>) {
+  return Object.keys(response).sort()
+}
+
+function sameKeys(left: string[], right: string[]) {
+  return left.length === right.length && left.every((key, index) => key === right[index])
+}
+
+function assertFragmentConfiguration(apiJson: ApiJson) {
+  if (!apiJson.fragment) {
+    return
+  }
+
+  const executeFragmentBlock = apiJson.blocks.find((block) => (
+    'functionName' in block && block.functionName === 'executeFragment'
+  ))
+
+  if (executeFragmentBlock) {
+    throw mokelayError(
+      'FRAGMENT_NESTING_FORBIDDEN',
+      `Fragment ${apiJson.uuid} 不允许调用 Fragment。`,
+      400,
+    )
+  }
+
+  const responses = [
+    ...(apiJson.response ? [apiJson.response] : []),
+    ...Object.values(apiJson.responses ?? {}),
+  ]
+
+  if (responses.length === 0) {
+    throw mokelayError('API_JSON_INVALID_RESPONSE', 'Fragment 必须配置 response 或 responses。', 400)
+  }
+
+  const expectedKeys = responseKeys(responses[0])
+
+  if (expectedKeys.length === 0) {
+    throw mokelayError('API_JSON_INVALID_RESPONSE', 'Fragment result 不能为空对象。', 400)
+  }
+
+  for (const response of responses) {
+    if (Object.prototype.hasOwnProperty.call(response, 'redirect')) {
+      throw mokelayError('API_JSON_INVALID_RESPONSE', 'Fragment result 不允许配置 redirect。', 400)
+    }
+
+    if (!sameKeys(expectedKeys, responseKeys(response))) {
+      throw mokelayError('API_JSON_INVALID_RESPONSE', 'Fragment 的所有终点必须返回相同的顶层字段。', 400)
+    }
+  }
+}
+
+function visitTemplateExpressions(value: unknown, visit: (expression: string) => void) {
+  if (typeof value === 'string') {
+    for (const match of value.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)) {
+      visit(match[1]?.trim() ?? '')
+    }
+    return
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      visitTemplateExpressions(item, visit)
+    }
+    return
+  }
+
+  if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) {
+      visitTemplateExpressions(item, visit)
+    }
+  }
+}
+
+function fragmentParamFromExpression(expression: string) {
+  if (expression === 'params') {
+    return undefined
+  }
+
+  const match = /^params(?:\.([A-Za-z_$][A-Za-z0-9_$]*)|\[['"]([^'"\]]+)['"]\])/.exec(expression)
+
+  return match?.[1] ?? match?.[2] ?? null
+}
+
+function assertFragmentTemplateScope(apiJson: ApiJson) {
+  if (!apiJson.fragment) {
+    return
+  }
+
+  const declaredParams = new Set(apiJson.params.map((declaration) => (
+    typeof declaration === 'string' ? declaration : declaration.key
+  )))
+  const sources: unknown[] = [apiJson.params, apiJson.response, apiJson.responses]
+
+  for (const block of apiJson.blocks) {
+    if ('inputs' in block) {
+      sources.push(block.inputs)
+    }
+    if ('outputs' in block) {
+      sources.push(block.outputs)
+    }
+  }
+
+  for (const source of sources) {
+    visitTemplateExpressions(source, (expression) => {
+      const root = /^([A-Za-z_$][A-Za-z0-9_$]*)(?:\.|\[|$)/.exec(expression)?.[1]
+
+      if (root === 'blocks' || expression === 'now') {
+        return
+      }
+
+      if (root === 'params') {
+        const param = fragmentParamFromExpression(expression)
+
+        if (param === undefined) {
+          return
+        }
+
+        if (param && declaredParams.has(param)) {
+          return
+        }
+
+        throw mokelayError(
+          'API_JSON_INVALID_SCHEMA',
+          `Fragment 模板引用了未声明参数：${expression}`,
+          400,
+        )
+      }
+
+      throw mokelayError(
+        'API_JSON_INVALID_SCHEMA',
+        `Fragment 模板只能引用 params、blocks 或 now：${expression}`,
+        400,
+      )
+    })
   }
 }

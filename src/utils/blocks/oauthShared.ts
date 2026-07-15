@@ -38,6 +38,18 @@ export type OAuthProfile = {
   raw: Record<string, unknown>
 }
 
+export type OAuthRegistration = {
+  enterpriseName: string
+  name: string
+  email: string
+  passwordHash: string
+  provider: OAuthProvider
+  providerUserId: string
+  providerEmail: string
+  emailVerified: boolean
+  profile: Record<string, unknown>
+}
+
 export const oauthSessionKey = 'oauth'
 
 const providerAuthorizeUrls: Record<OAuthProvider, string> = {
@@ -446,6 +458,24 @@ async function findEmployeeByEmail(executeSql: SqlExecutor, email: string) {
   return result.rows[0] ? publicUser(result.rows[0]) : null
 }
 
+async function findEmployeeById(executeSql: SqlExecutor, employeeId: string) {
+  const result = await executeSql<EmployeeRow>(sql`
+    SELECT
+      employees.id,
+      employees.enterprise_uuid,
+      employees.name,
+      employees.email,
+      employees.plan,
+      enterprise.name AS enterprise_name
+    FROM employees
+    INNER JOIN enterprise ON enterprise.uuid = employees.enterprise_uuid
+    WHERE employees.id = ${employeeId}
+    LIMIT 1
+  `)
+
+  return result.rows[0] ? publicUser(result.rows[0]) : null
+}
+
 async function createIdentity(
   executeSql: SqlExecutor,
   employeeId: string,
@@ -572,6 +602,7 @@ export async function resolveOAuthUser(
   profile: OAuthProfile,
   autoCreateEnterprise: boolean,
   databaseTypeValue?: DatabaseType,
+  deferNewUserProvisioning = false,
 ) {
   const databaseType = requireDatabaseType(databaseTypeValue)
 
@@ -582,22 +613,109 @@ export async function resolveOAuthUser(
   const existingIdentityUser = await findEmployeeByIdentity(executeSql, profile.provider, profile.providerUserId)
 
   if (existingIdentityUser) {
-    return { user: existingIdentityUser, isNewUser: false, linkedIdentity: false }
+    return {
+      user: existingIdentityUser,
+      isNewUser: false,
+      linkedIdentity: false,
+      requiresRegistration: false,
+      registration: null,
+    }
   }
 
   const existingEmailUser = await findEmployeeByEmail(executeSql, profile.email)
 
   if (existingEmailUser) {
     await createIdentity(executeSql, existingEmailUser.id, profile, databaseType)
-    return { user: existingEmailUser, isNewUser: false, linkedIdentity: true }
+    return {
+      user: existingEmailUser,
+      isNewUser: false,
+      linkedIdentity: true,
+      requiresRegistration: false,
+      registration: null,
+    }
   }
 
   if (!autoCreateEnterprise) {
     throw mokelayError('BLOCK_OAUTH_ACCOUNT_CONFLICT', 'OAuth 账号不存在。', 409)
   }
 
+  if (deferNewUserProvisioning) {
+    const registration: OAuthRegistration = {
+      enterpriseName: `${profile.name || profile.email.split('@')[0]} 的工作区`,
+      name: profile.name,
+      email: profile.email,
+      passwordHash: await hashPassword(randomUUID()),
+      provider: profile.provider,
+      providerUserId: profile.providerUserId,
+      providerEmail: profile.email,
+      emailVerified: profile.emailVerified,
+      profile: profile.raw,
+    }
+
+    return {
+      user: null,
+      isNewUser: false,
+      linkedIdentity: false,
+      requiresRegistration: true,
+      registration,
+    }
+  }
+
   const newUser = await createEmployee(executeSql, profile, databaseType)
   await createIdentity(executeSql, newUser.id, profile, databaseType)
 
-  return { user: newUser, isNewUser: true, linkedIdentity: true }
+  return {
+    user: newUser,
+    isNewUser: true,
+    linkedIdentity: true,
+    requiresRegistration: false,
+    registration: null,
+  }
+}
+
+export async function linkOAuthIdentity(
+  executeSql: SqlExecutor,
+  employeeId: string,
+  profile: OAuthProfile,
+  databaseTypeValue?: DatabaseType,
+) {
+  const databaseType = requireDatabaseType(databaseTypeValue)
+
+  if (!employeeId) {
+    throw mokelayError('BLOCK_OAUTH_INPUT_INVALID', 'employeeId 必须是非空字符串。', 400)
+  }
+
+  if (!profile.emailVerified) {
+    throw mokelayError('BLOCK_OAUTH_EMAIL_UNVERIFIED', 'OAuth 邮箱未验证。', 400)
+  }
+
+  const existingIdentityUser = await findEmployeeByIdentity(
+    executeSql,
+    profile.provider,
+    profile.providerUserId,
+  )
+
+  if (existingIdentityUser) {
+    if (existingIdentityUser.id !== employeeId) {
+      throw mokelayError('BLOCK_OAUTH_ACCOUNT_CONFLICT', 'OAuth 身份已绑定其他账号。', 409)
+    }
+
+    return { user: existingIdentityUser, linkedIdentity: false }
+  }
+
+  const employee = await findEmployeeById(executeSql, employeeId)
+
+  if (!employee || employee.email.toLowerCase() !== profile.email.toLowerCase()) {
+    throw mokelayError('BLOCK_OAUTH_ACCOUNT_CONFLICT', 'OAuth 身份与员工账号不匹配。', 409)
+  }
+
+  await createIdentity(executeSql, employeeId, profile, databaseType)
+
+  const linkedUser = await findEmployeeByIdentity(executeSql, profile.provider, profile.providerUserId)
+
+  if (!linkedUser || linkedUser.id !== employeeId) {
+    throw mokelayError('BLOCK_OAUTH_ACCOUNT_CONFLICT', 'OAuth 身份绑定失败或已绑定其他账号。', 409)
+  }
+
+  return { user: linkedUser, linkedIdentity: true }
 }
