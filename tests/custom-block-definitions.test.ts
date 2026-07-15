@@ -63,6 +63,21 @@ afterEach(async () => {
 })
 
 describe('custom block definitions', () => {
+  it('provides the current orchestration Processor pipeline to Block executors', async () => {
+    const body = await requestApi({
+      executor: async ({ inputs, processValue }) => ({
+        value: await processValue(
+          inputs.value,
+          ['trim', { processor: 'regex', param: '^[a-z]+$' }],
+          'custom.value',
+        ),
+      }),
+      allowedOutputs: ['value'],
+    }, apiJson('customBlock', ['value'], { value: '  processed  ' }))
+
+    expect(body).toEqual({ ok: true, data: { value: 'processed' } })
+  })
+
   it('executes a registered non-database block', async () => {
     const executor = vi.fn<BlockDefinition['executor']>(async ({ inputs, databaseType }) => ({
       value: inputs.value,

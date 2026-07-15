@@ -863,6 +863,9 @@ async function executeBlock(
     executeSql: executeBlockSql,
     databaseType,
     withTransaction,
+    processValue: async (value, processors, label) => (
+      await applyProcessors(value, processors, label, context)
+    ),
     invokeFragment: block.functionName === 'executeFragment'
       ? async (input) => await invokeFragment(input, debugStep)
       : async () => {

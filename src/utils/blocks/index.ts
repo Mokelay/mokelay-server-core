@@ -1,10 +1,12 @@
 import { type BlockDefinition, type BlockExecutor } from '../orchestration-schema.js'
 import { executeAddSessionBlock } from './addSession.js'
 import { executeAssertUniqueBlock } from './assertUnique.js'
+import { executeCascadeDeleteBlock } from './cascadeDelete.js'
 import { executeCountBlock } from './count.js'
 import { executeCreateBlock } from './create.js'
 import { executeCreateSchemaBlock } from './createSchema.js'
 import { executeDeleteBlock } from './delete.js'
+import { executeDropSchemasBlock } from './dropSchemas.js'
 import { executeFragmentBlock } from './executeFragment.js'
 import { executeGithubCommitBlock } from './githubCommit.js'
 import { executeGitlabCommitBlock } from './gitlabCommit.js'
@@ -36,9 +38,15 @@ export const blockDefinitions: Readonly<Record<string, BlockDefinition>> = {
   count: { executor: executeCountBlock, allowedOutputs: ['total'], requiresDatasource: true },
   read: { executor: executeReadBlock, allowedOutputs: ['data'], requiresDatasource: true },
   delete: { executor: executeDeleteBlock, allowedOutputs: ['affected'], requiresDatasource: true },
+  cascadeDelete: {
+    executor: executeCascadeDeleteBlock,
+    allowedOutputs: ['affected', 'affectedByNode', 'totalAffected', 'collected'],
+    requiresDatasource: true,
+  },
   executeFragment: { executor: executeFragmentBlock, allowedOutputs: ['result'] },
   create: { executor: executeCreateBlock, allowedOutputs: ['uuid'], requiresDatasource: true },
   createSchema: { executor: executeCreateSchemaBlock, allowedOutputs: ['schema', 'created', 'exists'], requiresDatasource: true },
+  dropSchemas: { executor: executeDropSchemasBlock, allowedOutputs: ['schemas', 'dropped'], requiresDatasource: true },
   upsert: { executor: executeUpsertBlock, allowedOutputs: ['uuid'], requiresDatasource: true },
   assertUnique: { executor: executeAssertUniqueBlock, allowedOutputs: [], requiresDatasource: true },
   update: { executor: executeUpdateBlock, allowedOutputs: ['affected'], requiresDatasource: true },

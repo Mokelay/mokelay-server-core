@@ -309,6 +309,12 @@ export type FragmentInvocation = {
 
 export type FragmentInvoker = (input: FragmentInvocation) => Promise<Record<string, unknown>>
 
+export type ProcessValue = (
+  value: unknown,
+  processors: ProcessorConfig[],
+  label: string,
+) => Promise<unknown>
+
 export type BlockExecutorInput = {
   event: H3Event
   block: Block
@@ -317,6 +323,8 @@ export type BlockExecutorInput = {
   databaseType?: DatabaseType
   /** Available for datasource-backed blocks; all statements use one connection. */
   withTransaction?: TransactionRunner
+  /** Runs a value through the orchestration Processor pipeline in the current template context. */
+  processValue: ProcessValue
   /** Reserved for the built-in executeFragment Block; other Blocks are rejected at runtime. */
   invokeFragment: FragmentInvoker
 }
