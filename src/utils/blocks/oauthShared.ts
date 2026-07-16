@@ -147,8 +147,17 @@ export function oauthFinalRedirectUrl(session: OAuthTempSession) {
 }
 
 export function oauthLoginRedirectUrl(errorCode: string, session?: OAuthTempSession) {
+  const loginOrigin = configuredOAuthAppOrigin()
+
+  if (loginOrigin && allowedOrigins().has(loginOrigin)) {
+    const params = new URLSearchParams({ oauth_error: errorCode })
+    if (session?.redirect) params.set('redirect', session.redirect)
+    if (session?.redirectOrigin) params.set('redirect_origin', session.redirectOrigin)
+    return `${loginOrigin}/login?${params.toString()}`
+  }
+
   const redirect = `/login?oauth_error=${encodeURIComponent(errorCode)}`
-  const redirectOrigin = session?.redirectOrigin || configuredOAuthAppOrigin()
+  const redirectOrigin = session?.redirectOrigin
 
   if (redirectOrigin && allowedOrigins().has(redirectOrigin)) {
     return `${redirectOrigin}${redirect}`
