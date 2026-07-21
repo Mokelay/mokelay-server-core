@@ -31,6 +31,9 @@ const renderShellCss = `
 
 let runtimePromise: Promise<RenderRuntime> | undefined
 let componentCssPromise: Promise<string> | undefined
+let cssLoaderRegistered = false
+
+type RenderStage = 'runtime' | 'normalize' | 'preload' | 'datasource' | 'ssr' | 'css'
 
 type RenderRuntime = {
   BlockRenderer: Component
@@ -93,11 +96,29 @@ function escapeHtml(value: string) {
 }
 
 function registerCssLoader() {
+  if (cssLoaderRegistered) return
   register(`data:text/javascript,${encodeURIComponent(cssLoaderSource)}`, import.meta.url)
+  cssLoaderRegistered = true
+}
+
+function errorSummary(error: unknown) {
+  if (!(error instanceof Error)) return { message: String(error) }
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : undefined
+  return { name: error.name, code, message: error.message }
+}
+
+function logRenderFailure(stage: RenderStage, error: unknown, pageUuid?: string) {
+  console.error('[mokelay:renderPage] render failed', {
+    stage,
+    pageUuid,
+    error: errorSummary(error),
+    cause: error instanceof Error && 'cause' in error ? errorSummary(error.cause) : undefined,
+  })
 }
 
 async function loadRuntime(): Promise<RenderRuntime> {
-  runtimePromise ??= (async () => {
+  if (runtimePromise) return runtimePromise
+  runtimePromise = (async () => {
     registerCssLoader()
     const [rendererModule, registryModule, previewModule, pagesModule] = await Promise.all([
       import('mokelay-components/blocks/MokelayBlockRenderer.vue'),
@@ -118,19 +139,43 @@ async function loadRuntime(): Promise<RenderRuntime> {
       PageLocaleConfigKey: pagesModule.PageLocaleConfigKey,
       PageReferenceAncestryKey: pagesModule.PageReferenceAncestryKey,
     }
-  })()
+  })().catch((error) => {
+    runtimePromise = undefined
+    throw error
+  })
   return runtimePromise
 }
 
 function loadComponentCss() {
-  componentCssPromise ??= readFile(require.resolve('mokelay-components/style.css'), 'utf8')
+  if (componentCssPromise) return componentCssPromise
+  componentCssPromise = readFile(require.resolve('mokelay-components/style.css'), 'utf8').catch((error) => {
+    componentCssPromise = undefined
+    throw error
+  })
   return componentCssPromise
 }
 
 async function renderPage(page: MokelayPage, context: PageRuntimeContext) {
-  const runtime = await loadRuntime()
-  await runtime.preloadMokelayBlocks(collectBlockTypes(page.blocks))
-  const runtimeData = await runtime.resolvePageDataSources(page.dataSources ?? [], context)
+  let runtime: RenderRuntime
+  try {
+    runtime = await loadRuntime()
+  } catch (error) {
+    logRenderFailure('runtime', error, page.uuid)
+    throw error
+  }
+  try {
+    await runtime.preloadMokelayBlocks(collectBlockTypes(page.blocks))
+  } catch (error) {
+    logRenderFailure('preload', error, page.uuid)
+    throw error
+  }
+  let runtimeData: Record<string, unknown>
+  try {
+    runtimeData = await runtime.resolvePageDataSources(page.dataSources ?? [], context)
+  } catch (error) {
+    logRenderFailure('datasource', error, page.uuid)
+    throw error
+  }
   const runtimeContextRef = computed(() => context)
   const runtimeDataRef = computed(() => runtimeData)
   const variableContextRef = computed(() => ({
@@ -158,7 +203,20 @@ async function renderPage(page: MokelayPage, context: PageRuntimeContext) {
   app.provide(runtime.PageLocaleConfigKey, computed(() => page.localeConfig))
   app.provide(runtime.PageReferenceAncestryKey, computed(() => [page.uuid]))
 
-  const [bodyHtml, componentCss] = await Promise.all([renderToString(app), loadComponentCss()])
+  let bodyHtml: string
+  try {
+    bodyHtml = await renderToString(app)
+  } catch (error) {
+    logRenderFailure('ssr', error, page.uuid)
+    throw error
+  }
+  let componentCss: string
+  try {
+    componentCss = await loadComponentCss()
+  } catch (error) {
+    logRenderFailure('css', error, page.uuid)
+    throw error
+  }
   const title = escapeHtml(page.name || page.uuid)
   return `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title}</title><style>${componentCss}\n${renderShellCss}</style></head><body>${bodyHtml}</body></html>`
 }
@@ -201,6 +259,7 @@ export const executeRenderPageBlock: BlockExecutor = async ({ inputs }) => {
     try {
       page = runtime.normalizeMokelayPage(rawPage)
     } catch (error) {
+      logRenderFailure('normalize', error)
       throw mokelayError('BLOCK_RENDER_INPUT_INVALID', 'page 不是有效的 Page DSL JSON。', 400, error)
     }
     return { html: await renderPage(page, context) }
