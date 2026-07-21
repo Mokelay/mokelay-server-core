@@ -23,8 +23,10 @@ import { executeReadBlock } from './read.js'
 import { executeReadSessionBlock } from './readSession.js'
 import { executeRemoveSessionBlock } from './removeSession.js'
 import { executeRandomIdBlock } from './randomId.js'
+import { executeRenderPageBlock } from './renderPage.js'
 import { executeSaveJsonToR2Block } from './saveJsonToR2.js'
 import { executeSchemaBlock } from './schema.js'
+import { executeSendEmailBlock } from './sendEmail.js'
 import { executeUpdateBlock } from './update.js'
 import { executeUpsertBlock } from './upsert.js'
 
@@ -55,6 +57,8 @@ export const blockDefinitions: Readonly<Record<string, BlockDefinition>> = {
   removeSession: { executor: executeRemoveSessionBlock, allowedOutputs: [] },
   readSession: { executor: executeReadSessionBlock, allowedOutputs: ['value'] },
   randomId: { executor: executeRandomIdBlock, allowedOutputs: ['value'] },
+  renderPage: { executor: executeRenderPageBlock, allowedOutputs: ['html'] },
+  sendEmail: { executor: executeSendEmailBlock, allowedOutputs: ['messageId', 'accepted', 'rejected'] },
   saveJsonToR2: {
     executor: executeSaveJsonToR2Block,
     allowedOutputs: ['key', 'directory', 'fileName', 'bucket', 'size', 'etag', 'skipped'],
