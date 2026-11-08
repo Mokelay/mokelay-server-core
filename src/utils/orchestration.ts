@@ -139,8 +139,8 @@ type SystemApiAssetDirectory = '' | 'fragment'
 
 function systemApiAssetPath(apiJsonUuid: string, directory: SystemApiAssetDirectory) {
   return directory
-    ? `mokelay-apis/${directory}/${apiJsonUuid}.json`
-    : `mokelay-apis/${apiJsonUuid}.json`
+    ? `mokelay/apis/${directory}/${apiJsonUuid}.json`
+    : `mokelay/apis/${apiJsonUuid}.json`
 }
 
 async function loadApiJsonFromNitroAssets(
@@ -177,7 +177,7 @@ async function loadApiJsonFromFileSystem(
   apiJsonUuid: string,
   directory: SystemApiAssetDirectory = '',
 ) {
-  const apiJsonDir = resolve(process.cwd(), 'server/assets/mokelay-apis')
+  const apiJsonDir = resolve(process.cwd(), 'server/assets/mokelay/apis')
   const filePath = resolve(apiJsonDir, directory, `${apiJsonUuid}.json`)
 
   if (!filePath.startsWith(`${apiJsonDir}${sep}`)) {
@@ -402,7 +402,7 @@ export async function loadApiJson(
 
 /**
  * Loads a Fragment owned by a built-in API. System Fragments live only below
- * server/assets/mokelay-apis/fragment (or the equivalent Nitro asset path).
+ * server/assets/mokelay/apis/fragment (or the equivalent Nitro asset path).
  */
 export async function loadSystemFragmentApiJson(apiJsonUuid: string) {
   assertApiJsonUuid(apiJsonUuid)

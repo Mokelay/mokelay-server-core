@@ -113,7 +113,7 @@ async function gitlabFileExists(baseUrl: string, token: string, projectId: strin
  *     { "key": "network", "type": "string", "value": "GitLab REST API", "description": "会读取 branch、检查文件是否存在，并调用 create commit API。" }
  *   ],
  *   "examples": [
- *     { "title": "提交 API JSON", "block": { "uuid": "gitlab_commit_block", "functionName": "gitlabCommit", "inputs": { "token": { "template": "{{request.body.token}}" }, "projectId": "mokelay/mokelay-server", "branch": "main", "message": "Publish API JSON", "files": [{ "path": "server/assets/mokelay-apis/demo.json", "action": "upsert", "content": "{}", "encoding": "utf8" }] }, "outputs": ["provider", "repo", "projectId", "branch", "commitSha", "commitUrl", "treeSha", "parentSha", "fileCount", "upsertedCount", "deletedCount"], "nextBlock": null } }
+ *     { "title": "提交 API JSON", "block": { "uuid": "gitlab_commit_block", "functionName": "gitlabCommit", "inputs": { "token": { "template": "{{request.body.token}}" }, "projectId": "mokelay/mokelay-server", "branch": "main", "message": "Publish API JSON", "files": [{ "path": "server/assets/mokelay/apis/demo.json", "action": "upsert", "content": "{}", "encoding": "utf8" }] }, "outputs": ["provider", "repo", "projectId", "branch", "commitSha", "commitUrl", "treeSha", "parentSha", "fileCount", "upsertedCount", "deletedCount"], "nextBlock": null } }
  *   ]
  * }
  */

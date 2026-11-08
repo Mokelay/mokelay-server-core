@@ -135,9 +135,9 @@ describe('Fragment source isolation', () => {
   it('resolves a system caller to the nested system Fragment when the database has the same UUID', async () => {
     const fragmentUuid = 'same_fragment'
     const apiUuid = 'system_caller'
-    fileAssets.set(`${process.cwd()}/server/assets/mokelay-apis/${apiUuid}.json`, endpointApi(apiUuid, fragmentUuid))
+    fileAssets.set(`${process.cwd()}/server/assets/mokelay/apis/${apiUuid}.json`, endpointApi(apiUuid, fragmentUuid))
     fileAssets.set(
-      `${process.cwd()}/server/assets/mokelay-apis/fragment/${fragmentUuid}.json`,
+      `${process.cwd()}/server/assets/mokelay/apis/fragment/${fragmentUuid}.json`,
       fragmentApi(fragmentUuid, 'system'),
     )
     const executeSql = vi.fn(async () => databaseResult([
@@ -158,11 +158,11 @@ describe('Fragment source isolation', () => {
     const fragmentUuid = 'nitro_fragment'
     const apiUuid = 'nitro_caller'
     nitroGetItemMock.mockImplementation(async (key: string) => {
-      if (key === `mokelay-apis/${apiUuid}.json`) {
+      if (key === `mokelay/apis/${apiUuid}.json`) {
         return endpointApi(apiUuid, fragmentUuid)
       }
 
-      if (key === `mokelay-apis/fragment/${fragmentUuid}.json`) {
+      if (key === `mokelay/apis/fragment/${fragmentUuid}.json`) {
         return fragmentApi(fragmentUuid, 'nitro-system')
       }
 
@@ -177,8 +177,8 @@ describe('Fragment source isolation', () => {
       data: { result: { source: 'nitro-system' } },
     })
     expect(nitroGetItemMock.mock.calls).toEqual([
-      [`mokelay-apis/${apiUuid}.json`],
-      [`mokelay-apis/fragment/${fragmentUuid}.json`],
+      [`mokelay/apis/${apiUuid}.json`],
+      [`mokelay/apis/fragment/${fragmentUuid}.json`],
     ])
     expect(executeSql).not.toHaveBeenCalled()
     expect(loadApiJsonFromR2Mock).not.toHaveBeenCalled()
@@ -188,7 +188,7 @@ describe('Fragment source isolation', () => {
     const fragmentUuid = 'same_fragment'
     const apiUuid = 'user_caller'
     fileAssets.set(
-      `${process.cwd()}/server/assets/mokelay-apis/fragment/${fragmentUuid}.json`,
+      `${process.cwd()}/server/assets/mokelay/apis/fragment/${fragmentUuid}.json`,
       fragmentApi(fragmentUuid, 'system'),
     )
     const executeSql = vi.fn()
@@ -202,14 +202,14 @@ describe('Fragment source isolation', () => {
       data: { result: { source: 'database' } },
     })
     expect(executeSql).toHaveBeenCalledTimes(2)
-    expect(readFileMock.mock.calls.some(([path]) => String(path).includes('/mokelay-apis/fragment/'))).toBe(false)
+    expect(readFileMock.mock.calls.some(([path]) => String(path).includes('/mokelay/apis/fragment/'))).toBe(false)
     expect(loadApiJsonFromR2Mock).toHaveBeenCalledTimes(1)
   })
 
   it('does not let a system caller fall through to a user Fragment', async () => {
     const fragmentUuid = 'database_only_fragment'
     const apiUuid = 'system_caller'
-    fileAssets.set(`${process.cwd()}/server/assets/mokelay-apis/${apiUuid}.json`, endpointApi(apiUuid, fragmentUuid))
+    fileAssets.set(`${process.cwd()}/server/assets/mokelay/apis/${apiUuid}.json`, endpointApi(apiUuid, fragmentUuid))
     const executeSql = vi.fn(async () => databaseResult([
       databaseRow(fragmentApi(fragmentUuid, 'database'), true),
     ])) as unknown as DatasourceSqlExecutor
@@ -228,7 +228,7 @@ describe('Fragment source isolation', () => {
     const fragmentUuid = 'system_only_fragment'
     const apiUuid = 'user_caller'
     fileAssets.set(
-      `${process.cwd()}/server/assets/mokelay-apis/fragment/${fragmentUuid}.json`,
+      `${process.cwd()}/server/assets/mokelay/apis/fragment/${fragmentUuid}.json`,
       fragmentApi(fragmentUuid, 'system'),
     )
     const executeSql = vi.fn()
@@ -242,13 +242,13 @@ describe('Fragment source isolation', () => {
       error: { code: 'API_JSON_NOT_FOUND' },
     })
     expect(executeSql).toHaveBeenCalledTimes(2)
-    expect(readFileMock.mock.calls.some(([path]) => String(path).includes('/mokelay-apis/fragment/'))).toBe(false)
+    expect(readFileMock.mock.calls.some(([path]) => String(path).includes('/mokelay/apis/fragment/'))).toBe(false)
   })
 
   it('does not expose a nested system Fragment as a top-level HTTP API', async () => {
     const fragmentUuid = 'nested_only_fragment'
     fileAssets.set(
-      `${process.cwd()}/server/assets/mokelay-apis/fragment/${fragmentUuid}.json`,
+      `${process.cwd()}/server/assets/mokelay/apis/fragment/${fragmentUuid}.json`,
       fragmentApi(fragmentUuid, 'system'),
     )
     const executeSql = vi.fn(async () => databaseResult([])) as unknown as DatasourceSqlExecutor
@@ -256,9 +256,9 @@ describe('Fragment source isolation', () => {
     await expect(loadApiJsonWithSource(fragmentUuid, executeSql)).rejects.toMatchObject({
       data: { code: 'API_JSON_NOT_FOUND' },
     })
-    expect(readFileMock.mock.calls.some(([path]) => String(path).includes('/mokelay-apis/fragment/'))).toBe(false)
-    expect(nitroGetItemMock).toHaveBeenCalledWith(`mokelay-apis/${fragmentUuid}.json`)
-    expect(nitroGetItemMock).not.toHaveBeenCalledWith(`mokelay-apis/fragment/${fragmentUuid}.json`)
+    expect(readFileMock.mock.calls.some(([path]) => String(path).includes('/mokelay/apis/fragment/'))).toBe(false)
+    expect(nitroGetItemMock).toHaveBeenCalledWith(`mokelay/apis/${fragmentUuid}.json`)
+    expect(nitroGetItemMock).not.toHaveBeenCalledWith(`mokelay/apis/fragment/${fragmentUuid}.json`)
   })
 
   it('does not fall through to the user namespace when Nitro asset storage fails', async () => {
@@ -299,7 +299,7 @@ describe('Fragment source isolation', () => {
     const apiUuid = 'raw_system_caller'
     const fragmentUuid = 'raw_system_fragment'
     fileAssets.set(
-      `${process.cwd()}/server/assets/mokelay-apis/fragment/${fragmentUuid}.json`,
+      `${process.cwd()}/server/assets/mokelay/apis/fragment/${fragmentUuid}.json`,
       fragmentApi(fragmentUuid, 'raw-system'),
     )
     const executeSql = vi.fn(async () => databaseResult([

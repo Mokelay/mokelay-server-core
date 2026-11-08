@@ -13,7 +13,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - `blocks/oauthCallback`：新增向后兼容的 `deferNewUserProvisioning` 模式，为全新用户返回 `requiresRegistration` 与 `registration`，由注册 Fragment 完成账号创建。
-- Fragment 按调用方来源严格隔离：内置 API 只能加载 `mokelay-apis/fragment/` 内置 Fragment，用户 API 只能加载数据库中的已发布 Fragment，双方不回退或跨域引用；调用能力仅开放给内置 `executeFragment` Block。
+- Fragment 按调用方来源严格隔离：内置 API 只能加载 `mokelay/apis/fragment/` 内置 Fragment，用户 API 只能加载数据库中的已发布 Fragment，双方不回退或跨域引用；调用能力仅开放给内置 `executeFragment` Block。
 - 普通 Block 新增可选 `errorNextBlock` 错误边，可将 Block/Fragment 调用失败路由到其他 Block 或当前终点响应。
 - HTTP API 加载 R2 对象前会校验数据库中的当前 DSL 类型，防止历史端点对象绕过 Fragment 禁止独立执行规则；数据库类型预检失败时采用 fail-closed。
 

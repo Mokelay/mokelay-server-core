@@ -106,7 +106,7 @@ function githubAuthor(inputs: ReturnType<typeof normalizeGitCommitInputs>) {
  *     { "key": "network", "type": "string", "value": "GitHub REST API", "description": "会读取 ref/commit/tree，并创建 blob/tree/commit、更新 ref。" }
  *   ],
  *   "examples": [
- *     { "title": "提交 API JSON", "block": { "uuid": "github_commit_block", "functionName": "githubCommit", "inputs": { "token": { "template": "{{request.body.token}}" }, "repo": "mokelay/mokelay-server", "branch": "main", "message": "Publish API JSON", "files": [{ "path": "server/assets/mokelay-apis/demo.json", "action": "upsert", "content": "{}", "encoding": "utf8" }] }, "outputs": ["provider", "repo", "projectId", "branch", "commitSha", "commitUrl", "treeSha", "parentSha", "fileCount", "upsertedCount", "deletedCount"], "nextBlock": null } }
+ *     { "title": "提交 API JSON", "block": { "uuid": "github_commit_block", "functionName": "githubCommit", "inputs": { "token": { "template": "{{request.body.token}}" }, "repo": "mokelay/mokelay-server", "branch": "main", "message": "Publish API JSON", "files": [{ "path": "server/assets/mokelay/apis/demo.json", "action": "upsert", "content": "{}", "encoding": "utf8" }] }, "outputs": ["provider", "repo", "projectId", "branch", "commitSha", "commitUrl", "treeSha", "parentSha", "fileCount", "upsertedCount", "deletedCount"], "nextBlock": null } }
  *   ]
  * }
  */

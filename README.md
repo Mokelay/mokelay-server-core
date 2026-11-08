@@ -54,9 +54,9 @@ API JSON 支持旧版顶层 `response`，也支持按结束点配置的 `respons
 
 Fragment 与调用方使用同一所有权域，内置和用户编排不能互相引用：
 
-- 内置 API 位于 `server/assets/mokelay-apis/{uuid}.json`，只能引用 `server/assets/mokelay-apis/fragment/{uuid}.json`（Nitro 使用相同的 asset key 结构）。内置 Fragment 不查询数据库或 R2。
+- 内置 API 位于 `server/assets/mokelay/apis/{uuid}.json`，只能引用 `server/assets/mokelay/apis/fragment/{uuid}.json`（Nitro 使用相同的 asset key 结构）。内置 Fragment 不查询数据库或 R2。
 - 用户 API 来自 R2/数据库，只能引用 `apis` 表中 `status=published AND fragment=true` 的记录。用户 Fragment 不查询内置 assets 或 R2。
-- 两个域即使存在相同 Fragment UUID，也会各自解析本域定义。HTTP 顶层加载只检查 `mokelay-apis/` 根目录，因此 `fragment/` 下的内置配置不能被独立访问。
+- 两个域即使存在相同 Fragment UUID，也会各自解析本域定义。HTTP 顶层加载只检查 `mokelay/apis/` 根目录，因此 `fragment/` 下的内置配置不能被独立访问。
 
 普通 HTTP API 从 R2 读取前会检查数据库中的当前元数据；如果 UUID 已成为 Fragment、数据库记录已删除或类型检查失败，会拒绝执行旧 R2 对象。未配置 Mokelay 数据库的 R2-only 部署仍可直接读取 R2，但用户 Fragment 仍要求数据库中的已发布记录。宿主注入 `loadApiJson` 时，该 loader 继续同时负责顶层 API 与其 Fragment，方便测试及自定义嵌入；自定义 Block 不能绕过 `executeFragment` 直接调用 Fragment。
 
