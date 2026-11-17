@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { mokelayError } from '../mokelay-error.js'
 import { type BlockExecutor } from '../orchestration-schema.js'
 import {
   buildWhereSql,
@@ -20,12 +21,14 @@ import {
  *     { "key": "datasource", "type": "string", "required": true, "description": "数据源名称，对应 ${datasource}_DATABASE_URL。" },
  *     { "key": "table", "type": "string", "required": true, "description": "数据库表名，支持 schema.table。" },
  *     { "key": "fields", "type": "string[]", "required": true, "description": "需要返回的字段列表。" },
- *     { "key": "conditions", "type": "OrchestrationCondition[]", "required": false, "description": "可选过滤条件。" }
+ *     { "key": "conditions", "type": "OrchestrationCondition[]", "required": false, "description": "可选过滤条件。" },
+ *     { "key": "lock", "type": "share|update", "required": false, "description": "在 Fragment 事务中持有共享锁或排他锁直到事务结束。" }
  *   ],
  *   "outputs": [
  *     { "key": "data", "type": "Record<string, unknown>|null", "description": "首条记录；未命中时为 null。" }
  *   ],
  *   "errors": [
+ *     { "code": "BLOCK_SQL_UNSUPPORTED", "description": "lock 不在事务内使用或锁类型无效。" },
  *     { "code": "BLOCK_INVALID_TABLE", "description": "table 为空或不是合法 SQL 标识符。" },
  *     { "code": "BLOCK_INVALID_FIELDS", "description": "fields 不是非空字符串数组。" }
  *   ],
@@ -38,7 +41,7 @@ import {
  *   ]
  * }
  */
-export const executeReadBlock: BlockExecutor = async ({ inputs, executeSql, databaseType }) => {
+export const executeReadBlock: BlockExecutor = async ({ inputs, executeSql, databaseType, inTransaction }) => {
   requireDatabaseType(databaseType)
 
   const table = identifierSql(inputs.table, 'table', 'BLOCK_INVALID_TABLE')
@@ -49,6 +52,12 @@ export const executeReadBlock: BlockExecutor = async ({ inputs, executeSql, data
   const query = where
     ? sql`SELECT ${selectedFields} FROM ${table} WHERE ${where} LIMIT 1`
     : sql`SELECT ${selectedFields} FROM ${table} LIMIT 1`
+  if (inputs.lock !== undefined) {
+    if (!inTransaction || (inputs.lock !== 'share' && inputs.lock !== 'update')) {
+      throw mokelayError('BLOCK_SQL_UNSUPPORTED', 'read.lock 需要 Fragment 事务，取值为 share 或 update。', 400)
+    }
+    query.append(inputs.lock === 'update' ? sql` FOR UPDATE` : sql` FOR SHARE`)
+  }
   const result = await executeSql(query)
 
   return {

@@ -24,7 +24,7 @@ import { isRecord } from './shared.js'
  *   ],
  *   "config": [],
  *   "runtime": [
- *     { "key": "requiresDatasource", "type": "boolean", "value": false, "description": "Block 自身不绑定数据源；Fragment 内各 Block 按原规则选择数据源。" }
+ *     { "key": "requiresDatasource", "type": "boolean", "value": false, "description": "Fragment 可通过 transaction.datasource 配置共享事务。执行或响应解析失败时回滚，调用方可配置错误分支。" }
  *   ],
  *   "examples": [
  *     { "title": "执行用户初始化 Fragment", "block": { "uuid": "provision_user", "functionName": "executeFragment", "inputs": { "fragmentUuid": "provision_new_user", "params": { "email": { "template": "{{request.body.email}}" } } }, "outputs": ["result"], "nextBlock": null } }

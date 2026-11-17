@@ -148,6 +148,37 @@ describe('Fragment loading', () => {
   })
 })
 
+describe('Fragment transactions', () => {
+  it('aborts a transaction if a read targets another datasource, including blocks with an error edge', async () => {
+    const caller = callerApi('shared_fragment')
+    const fragment = fragmentApi({
+      params: [], transaction: { datasource: 'Primary' },
+      blocks: [
+        { uuid: 'starter', nextBlock: 'lookup' },
+        { uuid: 'lookup', functionName: 'read', inputs: { datasource: 'Other', table: 'items', fields: ['id'] },
+          nextBlock: null, errorNextBlock: null },
+      ],
+      response: { success: true },
+    })
+    const query = vi.fn()
+    const handler = createMokelayOrchestrationHandler({
+      loadApiJson: async uuid => uuid === caller.uuid ? caller : fragment,
+      executeSql: query,
+      executeTransaction: async (datasource, run, options) => {
+        expect(datasource).toBe('Primary')
+        expect(options?.retries).toBe(0)
+        return run(query)
+      },
+    })
+    const base = await startServer(handler)
+    const response = await fetch(base + '/api/mokelay/' + caller.uuid, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ required: 'ok', normalized: 'ok' }),
+    })
+    expect(await response.json()).toMatchObject({ ok: false, error: { code: 'BLOCK_INVALID_DATASOURCE' } })
+    expect(query).not.toHaveBeenCalled()
+  })
+})
+
 describe('Fragment DSL schema', () => {
   it('parses endpoint and Fragment as a strict discriminated union', () => {
     expect(parseApiJson('endpoint', {

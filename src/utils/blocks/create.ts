@@ -94,6 +94,7 @@ async function mysqlGeneratedIdValue(
  *   "category": "database",
  *   "description": "向 table 插入一条记录，并把物理 idField 映射为标准输出 uuid。",
  *   "inputs": [
+ *     { "key": "conflictMessage", "type": "string", "required": false, "description": "唯一键冲突时以 BLOCK_UNIQUE_CONFLICT 返回此消息。" },
  *     { "key": "datasource", "type": "string", "required": true, "description": "数据源名称，对应 ${datasource}_DATABASE_URL。" },
  *     { "key": "table", "type": "string", "required": true, "description": "数据库表名，支持 schema.table。" },
  *     { "key": "fields", "type": "Record<string, unknown>", "required": true, "description": "待插入字段和值。" },
@@ -103,6 +104,7 @@ async function mysqlGeneratedIdValue(
  *     { "key": "uuid", "type": "string|number", "description": "插入记录的唯一 ID。" }
  *   ],
  *   "errors": [
+ *     { "code": "BLOCK_UNIQUE_CONFLICT", "description": "设置了 conflictMessage 且插入违反唯一约束。" },
  *     { "code": "BLOCK_INVALID_TABLE", "description": "table 为空或不是合法 SQL 标识符。" },
  *     { "code": "BLOCK_INVALID_FIELDS", "description": "fields 不是非空对象或字段名非法。" },
  *     { "code": "BLOCK_INVALID_ID_FIELD", "description": "idField 为空或不是合法字段名。" },
@@ -153,7 +155,10 @@ export const executeCreateBlock: BlockExecutor = async ({ inputs, executeSql, da
 
     return { uuid }
   } catch (error) {
-    if (isDuplicateRecordError(error)) {
+    if (isDuplicateRecordError(error) || (error instanceof Error && isDuplicateRecordError(error.cause))) {
+      if (typeof inputs.conflictMessage === 'string' && inputs.conflictMessage.trim()) {
+        throw mokelayError('BLOCK_UNIQUE_CONFLICT', inputs.conflictMessage, 409, error)
+      }
       throw mokelayError('BLOCK_DUPLICATE_RECORD', '记录已经存在。', 409, error)
     }
 

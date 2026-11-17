@@ -1,5 +1,6 @@
 import { apiJsonWhenPublishedProcessor } from './api_json_when_published.js'
 import { booleanValueProcessor } from './boolean_value.js'
+import { decimalFixedProcessor } from './decimal_fixed.js'
 import { defaultValueProcessor } from './default_value.js'
 import { emailCheckProcessor } from './email_check.js'
 import { envValueProcessor } from './env_value.js'
@@ -7,6 +8,7 @@ import { eqProcessor } from './eq.js'
 import { equalsProcessor } from './equals.js'
 import { hashCheckProcessor } from './hash_check.js'
 import { hashMakeProcessor } from './hash_make.js'
+import { integerAddProcessor } from './integer_add.js'
 import { isNotNullProcessor } from './is_not_null.js'
 import { isNullProcessor } from './is_null.js'
 import { maxProcessor } from './max.js'
@@ -20,6 +22,8 @@ import { type ProcessorExecutor } from './shared.js'
 
 export const processorExecutors: Record<string, ProcessorExecutor> = {
   trim: trimProcessor,
+  integer_add: integerAddProcessor,
+  decimal_fixed: decimalFixedProcessor,
   is_not_null: isNotNullProcessor,
   is_null: isNullProcessor,
   not_null: notNullProcessor,

@@ -213,6 +213,11 @@ const fragmentResponseConfigSchema = z.record(z.unknown())
 const fragmentApiJsonSchema = z.object({
   ...commonApiJsonShape,
   fragment: z.literal(true),
+  transaction: z.object({
+    datasource: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+    isolationLevel: z.enum(['read committed', 'repeatable read', 'serializable']).optional(),
+    retries: z.number().int().min(0).max(10).optional(),
+  }).strict().optional(),
   params: z.array(processableKeySchema).optional().default([]),
   response: fragmentResponseConfigSchema.optional(),
   responses: z.record(fragmentResponseConfigSchema).optional(),
@@ -321,7 +326,8 @@ export type BlockExecutorInput = {
   inputs: Record<string, unknown>
   executeSql: SqlExecutor
   databaseType?: DatabaseType
-  /** Available for datasource-backed blocks; all statements use one connection. */
+  inTransaction?: boolean
+  /** Available for datasource-backed blocks outside a fragment transaction; all statements use one connection. */
   withTransaction?: TransactionRunner
   /** Runs a value through the orchestration Processor pipeline in the current template context. */
   processValue: ProcessValue

@@ -1,5 +1,6 @@
 import { type BlockDefinition, type BlockExecutor } from '../orchestration-schema.js'
 import { executeAddSessionBlock } from './addSession.js'
+import { executeAssertBlock } from './assert.js'
 import { executeAssertUniqueBlock } from './assertUnique.js'
 import { executeCascadeDeleteBlock } from './cascadeDelete.js'
 import { executeCountBlock } from './count.js'
@@ -31,6 +32,7 @@ import { executeUpdateBlock } from './update.js'
 import { executeUpsertBlock } from './upsert.js'
 
 export const blockDefinitions: Readonly<Record<string, BlockDefinition>> = {
+  assert: { executor: executeAssertBlock, allowedOutputs: [] },
   list: { executor: executeListBlock, allowedOutputs: ['datas'], requiresDatasource: true },
   page: {
     executor: executePageBlock,

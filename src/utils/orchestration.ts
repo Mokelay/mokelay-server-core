@@ -807,6 +807,8 @@ type InternalFragmentInvoker = (
   debugStep?: MokelayDebugBlockStep,
 ) => Promise<Record<string, unknown>>
 
+type FragmentTransaction = { datasource: string, query: SqlExecutor }
+
 async function executeBlock(
   block: Block,
   context: BlockExecutionContext,
@@ -816,6 +818,7 @@ async function executeBlock(
   definitions: Readonly<Record<string, BlockDefinition>>,
   invokeFragment: InternalFragmentInvoker,
   debugStep?: MokelayDebugBlockStep,
+  transaction?: FragmentTransaction,
 ) {
   const definition = Object.prototype.hasOwnProperty.call(definitions, block.functionName)
     ? definitions[block.functionName]
@@ -841,16 +844,19 @@ async function executeBlock(
   const datasource = definition.requiresDatasource
     ? normalizeDatasourceName(inputs.datasource)
     : undefined
+  if (transaction && datasource && datasource !== transaction.datasource) {
+    throw mokelayError('BLOCK_INVALID_DATASOURCE', `事务内的 Block 必须使用数据源 ${transaction.datasource}。`, 400)
+  }
   const databaseType = datasource ? datasourceDatabaseType(datasource) : undefined
   const executeBlockSql: SqlExecutor = (query) => {
     if (!datasource) {
       throw mokelayError('BLOCK_SQL_UNSUPPORTED', `Block ${block.functionName} 不支持 SQL 执行。`, 500)
     }
 
-    return executeSql(query, datasource, requireDatabaseType(databaseType))
+    return transaction ? transaction.query(query) : executeSql(query, datasource, requireDatabaseType(databaseType))
   }
 
-  const withTransaction: import('./db.js').TransactionRunner | undefined = datasource
+  const withTransaction: import('./db.js').TransactionRunner | undefined = datasource && !transaction
     ? async <T>(callback: (executeSql: SqlExecutor) => Promise<T>, transactionOptions?: import('./db.js').TransactionOptions) => (
         await executeTransaction(datasource, callback, transactionOptions)
       )
@@ -861,6 +867,7 @@ async function executeBlock(
     block,
     inputs,
     executeSql: executeBlockSql,
+    inTransaction: Boolean(transaction),
     databaseType,
     withTransaction,
     processValue: async (value, processors, label) => (
@@ -986,6 +993,7 @@ async function executeBlockGraph(
   definitions: Readonly<Record<string, BlockDefinition>>,
   invokeFragment: InternalFragmentInvoker,
   debug?: MokelayDebugResponse,
+  transaction?: FragmentTransaction,
 ) {
   const { starterNextBlock, blockMap } = buildBlockMap(blocks)
   const visited = new Set<string>()
@@ -1070,6 +1078,7 @@ async function executeBlockGraph(
         definitions,
         invokeFragment,
         debugStep,
+        transaction,
       )
       terminalUuid = block.uuid
       nextBlockUuid = block.nextBlock
@@ -1084,7 +1093,7 @@ async function executeBlockGraph(
         debugStep.nextBlock = null
       }
 
-      if (block.errorNextBlock !== undefined) {
+      if (!transaction && block.errorNextBlock !== undefined) {
         terminalUuid = block.uuid
         nextBlockUuid = block.errorNextBlock ?? null
         appendDebugStep = debugStep
@@ -1148,11 +1157,6 @@ async function executeFragmentInvocation(
   }
 
   const params = await processFragmentParams(fragment, invocation.params, now)
-  const context: BlockExecutionContext = {
-    params,
-    now,
-    blocks: {},
-  }
   const rejectNestedFragment: InternalFragmentInvoker = async () => {
     throw mokelayError(
       'FRAGMENT_NESTING_FORBIDDEN',
@@ -1160,24 +1164,32 @@ async function executeFragmentInvocation(
       400,
     )
   }
-  const terminalUuid = await executeBlockGraph(
-    fragment.blocks,
-    context,
-    executeSql,
-    executeTransaction,
-    event,
-    definitions,
-    rejectNestedFragment,
-    debug,
-  )
-  const responseConfig = responseForTerminal(fragment, terminalUuid)
-  const result = responseConfig == null ? null : await resolveTemplates(responseConfig, context)
+  async function run(transaction?: FragmentTransaction) {
+    const context: BlockExecutionContext = { params, now, blocks: {} }
+    const terminalUuid = await executeBlockGraph(
+      fragment.blocks,
+      context,
+      executeSql,
+      executeTransaction,
+      event,
+      definitions,
+      rejectNestedFragment,
+      debug,
+      transaction,
+    )
+    const responseConfig = responseForTerminal(fragment, terminalUuid)
+    const result = responseConfig == null ? null : await resolveTemplates(responseConfig, context)
 
-  if (!isRecord(result) || Object.keys(result).length === 0) {
-    throw mokelayError('API_JSON_INVALID_RESPONSE', `Fragment ${fragmentUuid} 的 result 必须是对象。`, 400)
+    if (!isRecord(result) || Object.keys(result).length === 0) {
+      throw mokelayError('API_JSON_INVALID_RESPONSE', `Fragment ${fragmentUuid} 的 result 必须是对象。`, 400)
+    }
+
+    return result
   }
 
-  return result
+  if (!fragment.transaction) return run()
+  const { datasource, isolationLevel, retries = 0 } = fragment.transaction
+  return executeTransaction(datasource, query => run({ datasource, query }), { isolationLevel, retries })
 }
 
 async function executeApiJsonWithDefinitions(
