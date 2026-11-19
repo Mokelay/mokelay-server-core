@@ -2,6 +2,8 @@ import { createError, isError } from 'h3'
 import type { MokelayDebugResponse } from './orchestration-schema.js'
 
 export const mokelayErrorCodes = [
+  'ASSET_APP_INVALID',
+  'PAGE_ASSET_UUID_DUPLICATE',
   'API_JSON_UUID_INVALID',
   'API_JSON_NOT_FOUND',
   'API_JSON_INVALID_JSON',

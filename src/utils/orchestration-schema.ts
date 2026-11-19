@@ -346,6 +346,8 @@ export type BlockDefinition = {
 export type ApiJsonSource = 'system' | 'user'
 
 export type OrchestrationHandlerOptions = {
+  /** Built-in asset directory; propagated to every Fragment invocation. */
+  assetApp?: string
   loadApiJson?: (apiJsonUuid: string) => Promise<unknown>
   /**
    * Ownership domain for raw DSL passed directly to executeApiJson. The default

@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { assertAssetApp } from './app-assets.js'
 import { resolve, sep } from 'node:path'
 import { sql, type SQL } from 'drizzle-orm'
 import {
@@ -137,15 +138,16 @@ function formatSqlTimestamp(date: Date) {
 
 type SystemApiAssetDirectory = '' | 'fragment'
 
-function systemApiAssetPath(apiJsonUuid: string, directory: SystemApiAssetDirectory) {
+function systemApiAssetPath(apiJsonUuid: string, directory: SystemApiAssetDirectory, assetApp: string) {
   return directory
-    ? `mokelay/apis/${directory}/${apiJsonUuid}.json`
-    : `mokelay/apis/${apiJsonUuid}.json`
+    ? `${assetApp}/apis/${directory}/${apiJsonUuid}.json`
+    : `${assetApp}/apis/${apiJsonUuid}.json`
 }
 
 async function loadApiJsonFromNitroAssets(
   apiJsonUuid: string,
   directory: SystemApiAssetDirectory = '',
+  assetApp = 'mokelay',
 ) {
   let runtime: {
     useStorage?: (base: string) => {
@@ -167,7 +169,7 @@ async function loadApiJsonFromNitroAssets(
   // failures here: falling through to R2/database after a system-asset outage
   // could execute a user API with the same UUID and cross ownership domains.
   const value = await runtime.useStorage('assets:server').getItem(
-    systemApiAssetPath(apiJsonUuid, directory),
+    systemApiAssetPath(apiJsonUuid, directory, assertAssetApp(assetApp)),
   )
 
   return value ?? undefined
@@ -176,8 +178,9 @@ async function loadApiJsonFromNitroAssets(
 async function loadApiJsonFromFileSystem(
   apiJsonUuid: string,
   directory: SystemApiAssetDirectory = '',
+  assetApp = 'mokelay',
 ) {
-  const apiJsonDir = resolve(process.cwd(), 'server/assets/mokelay/apis')
+  const apiJsonDir = resolve(process.cwd(), 'server/assets', assertAssetApp(assetApp), 'apis')
   const filePath = resolve(apiJsonDir, directory, `${apiJsonUuid}.json`)
 
   if (!filePath.startsWith(`${apiJsonDir}${sep}`)) {
@@ -319,10 +322,12 @@ export type LoadedApiJson = {
 export async function loadApiJsonWithSource(
   apiJsonUuid: string,
   executeSql: DatasourceSqlExecutor = defaultExecuteSql,
+  assetApp = 'mokelay',
 ): Promise<LoadedApiJson> {
+  assertAssetApp(assetApp)
   assertApiJsonUuid(apiJsonUuid)
 
-  const localFileValue = await loadApiJsonFromFileSystem(apiJsonUuid)
+  const localFileValue = await loadApiJsonFromFileSystem(apiJsonUuid, '', assetApp)
 
   if (localFileValue !== undefined) {
     return {
@@ -331,13 +336,22 @@ export async function loadApiJsonWithSource(
     }
   }
 
-  const nitroAssetsValue = await loadApiJsonFromNitroAssets(apiJsonUuid)
+  const nitroAssetsValue = await loadApiJsonFromNitroAssets(apiJsonUuid, '', assetApp)
 
   if (nitroAssetsValue !== undefined) {
     return {
       apiJson: parseLoadedApiJson(apiJsonUuid, nitroAssetsValue),
       source: 'system',
     }
+  }
+
+  if (assetApp !== 'mokelay') {
+    const fragment = await loadApiJsonFromFileSystem(apiJsonUuid, 'fragment', assetApp)
+      ?? await loadApiJsonFromNitroAssets(apiJsonUuid, 'fragment', assetApp)
+    if (fragment !== undefined) {
+      throw mokelayError('FRAGMENT_DIRECT_EXECUTION_FORBIDDEN', `Fragment ${apiJsonUuid} 不能通过 HTTP 独立执行。`, 400)
+    }
+    throw mokelayError('API_JSON_NOT_FOUND', `应用 ${assetApp} 的 API ${apiJsonUuid} 不存在。`, 404)
   }
 
   const databaseConfigured = hasMokelayDatabaseConfiguration()
@@ -402,18 +416,18 @@ export async function loadApiJson(
 
 /**
  * Loads a Fragment owned by a built-in API. System Fragments live only below
- * server/assets/mokelay/apis/fragment (or the equivalent Nitro asset path).
+ * server/assets/{app}/apis/fragment (or the equivalent Nitro asset path).
  */
-export async function loadSystemFragmentApiJson(apiJsonUuid: string) {
+export async function loadSystemFragmentApiJson(apiJsonUuid: string, assetApp = 'mokelay') {
   assertApiJsonUuid(apiJsonUuid)
 
-  const localFileValue = await loadApiJsonFromFileSystem(apiJsonUuid, 'fragment')
+  const localFileValue = await loadApiJsonFromFileSystem(apiJsonUuid, 'fragment', assetApp)
 
   if (localFileValue !== undefined) {
     return parseLoadedApiJson(apiJsonUuid, localFileValue)
   }
 
-  const nitroAssetsValue = await loadApiJsonFromNitroAssets(apiJsonUuid, 'fragment')
+  const nitroAssetsValue = await loadApiJsonFromNitroAssets(apiJsonUuid, 'fragment', assetApp)
 
   if (nitroAssetsValue !== undefined) {
     return parseLoadedApiJson(apiJsonUuid, nitroAssetsValue)
@@ -1127,7 +1141,7 @@ async function loadReferencedApiJson(
   }
 
   return source === 'system'
-    ? await loadSystemFragmentApiJson(apiJsonUuid)
+    ? await loadSystemFragmentApiJson(apiJsonUuid, options.assetApp)
     : await loadUserFragmentApiJson(apiJsonUuid, options.executeSql)
 }
 
@@ -1318,7 +1332,7 @@ export function createMokelayOrchestrationHandler(options: OrchestrationHandlerO
             apiJson: await options.loadApiJson(apiJsonUuid),
             source: 'custom' as const,
           }
-        : await loadApiJsonWithSource(apiJsonUuid, options.executeSql)
+        : await loadApiJsonWithSource(apiJsonUuid, options.executeSql, options.assetApp)
 
       return await executeApiJsonWithDefinitions(event, loaded.apiJson, options, definitions, loaded.source)
     } catch (error) {

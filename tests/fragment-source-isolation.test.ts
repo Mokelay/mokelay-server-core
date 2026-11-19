@@ -321,3 +321,44 @@ describe('Fragment source isolation', () => {
     expect(loadApiJsonFromR2Mock).not.toHaveBeenCalled()
   })
 })
+
+describe('built-in application namespaces', () => {
+  it.each(['filesystem', 'nitro'])('keeps same-named API and Fragment in their own application (%s)', async backend => {
+    const values = new Map<string, unknown>([
+      ['lark/apis/caller.json', endpointApi('caller')],
+      ['lark/apis/fragment/same_fragment.json', fragmentApi('same_fragment', 'lark')],
+      ['mokelay/apis/caller.json', endpointApi('caller')],
+      ['mokelay/apis/fragment/same_fragment.json', fragmentApi('same_fragment', 'mokelay')],
+    ])
+    if (backend === 'filesystem') {
+      for (const [path, value] of values) fileAssets.set(`${process.cwd()}/server/assets/${path}`, value)
+    } else nitroGetItemMock.mockImplementation(async key => values.get(key))
+    const executeSql = vi.fn() as unknown as DatasourceSqlExecutor
+    for (const assetApp of ['lark', 'mokelay']) {
+      expect(await request(createMokelayOrchestrationHandler({ assetApp, executeSql }), 'caller'))
+        .toMatchObject({ ok: true, data: { result: { source: assetApp } } })
+    }
+    expect(executeSql).not.toHaveBeenCalled()
+    expect(loadApiJsonFromR2Mock).not.toHaveBeenCalled()
+  })
+
+  it('never falls back to another app, R2 or platform records for a missing app API/Fragment', async () => {
+    fileAssets.set(`${process.cwd()}/server/assets/mokelay/apis/caller.json`, endpointApi('caller'))
+    fileAssets.set(`${process.cwd()}/server/assets/mokelay/apis/fragment/same_fragment.json`, fragmentApi('same_fragment', 'mokelay'))
+    const executeSql = vi.fn() as unknown as DatasourceSqlExecutor
+    const handler = createMokelayOrchestrationHandler({ assetApp: 'lark', executeSql })
+    expect(await request(handler, 'caller')).toMatchObject({ ok: false, error: { code: 'API_JSON_NOT_FOUND' } })
+    fileAssets.set(`${process.cwd()}/server/assets/lark/apis/caller.json`, endpointApi('caller'))
+    expect(await request(handler, 'caller')).toMatchObject({ ok: false, error: { code: 'API_JSON_NOT_FOUND' } })
+    fileAssets.set(`${process.cwd()}/server/assets/lark/apis/fragment/same_fragment.json`, fragmentApi('same_fragment', 'lark'))
+    expect(await request(handler, 'same_fragment')).toMatchObject({ ok: false, error: { code: 'FRAGMENT_DIRECT_EXECUTION_FORBIDDEN' } })
+    expect(executeSql).not.toHaveBeenCalled()
+    expect(loadApiJsonFromR2Mock).not.toHaveBeenCalled()
+  })
+
+  it.each(['../mokelay', 'mokelay/apis', '', 'mokelay-schema'])('rejects an invalid application name %j before reading assets', async assetApp => {
+    await expect(loadApiJsonWithSource('caller', vi.fn(), assetApp)).rejects.toMatchObject({ data: { code: 'ASSET_APP_INVALID' } })
+    expect(readFileMock).not.toHaveBeenCalled()
+    expect(nitroGetItemMock).not.toHaveBeenCalled()
+  })
+})
